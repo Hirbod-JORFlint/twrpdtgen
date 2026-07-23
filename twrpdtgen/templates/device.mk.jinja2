@@ -35,7 +35,7 @@ PRODUCT_PACKAGES += \
     update_verifier \
     update_engine_sideload
 
-# A/B OTA encryption support
+# A/B fstab copy
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/recovery/root/etc/recovery.fstab:$(TARGET_COPY_OUT_RECOVERY)/etc/recovery.fstab
 
@@ -48,10 +48,6 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_PROPERTY_OVERRIDES += \
     ro.crypto.dm_default_key.enabled=true
 
-PRODUCT_PACKAGES += \
-    libfscrypt \
-    libcryptfses
-
 {% endif %}
 {% if has_encryption %}
 # Encryption support
@@ -61,5 +57,20 @@ PRODUCT_COPY_FILES += \
 PRODUCT_PACKAGES += \
     libfscrypt \
     libcryptfses
-{% endif %}
 
+{% endif %}
+{% if is_qualcomm %}
+# Qualcomm FBE decryption
+PRODUCT_PACKAGES += \
+    libkeymaster4 \
+    libpuresoftkeymasterdevice \
+    ashmemd_aidl_interface-cpp \
+    libashmemd_client
+
+TW_RECOVERY_ADDITIONAL_RELINK_LIBRARY_FILES += \
+    $(TARGET_OUT_SHARED_LIBRARIES)/libkeymaster4.so \
+    $(TARGET_OUT_SHARED_LIBRARIES)/libpuresoftkeymasterdevice.so \
+    $(TARGET_OUT_SHARED_LIBRARIES)/ashmemd_aidl_interface-cpp.so \
+    $(TARGET_OUT_SHARED_LIBRARIES)/libashmemd_client.so
+
+{% endif %}
