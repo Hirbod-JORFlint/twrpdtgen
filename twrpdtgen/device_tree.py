@@ -8,13 +8,13 @@
 from datetime import datetime
 from os import chmod
 from pathlib import Path
+from platform import system
 from shutil import copyfile, rmtree
 from stat import S_IRWXU, S_IRGRP, S_IROTH
 from typing import List, Optional
 
 # Third-party
 from git import Repo
-from sebaubuntu_libs.libaik import AIKManager
 from sebaubuntu_libs.libandroid.device_info import DeviceInfo
 from sebaubuntu_libs.libandroid.fstab import Fstab
 from sebaubuntu_libs.libandroid.props import BuildProp
@@ -23,6 +23,14 @@ from sebaubuntu_libs.liblogging import LOGD
 # Local
 from twrpdtgen import __version__ as version
 from twrpdtgen.templates import render_template
+
+# Platform detection for image unpacking
+_IS_WINDOWS = system() == "Windows"
+
+if not _IS_WINDOWS:
+	from sebaubuntu_libs.libaik import AIKManager
+else:
+	from twrpdtgen.image_unpacker import PurePythonImageUnpacker
 
 BUILDPROP_LOCATIONS = [
 	Path() / "default.prop",
@@ -100,9 +108,15 @@ def _detect_tw_theme(screen_density: Optional[int]) -> str:
 	if screen_density is None:
 		return "portrait_hdpi"
 
+	# Ensure we have a numeric value for comparison
+	try:
+		density = int(screen_density)
+	except (ValueError, TypeError):
+		return "portrait_hdpi"
+
 	# mdpi is ~160dpi, hdpi is ~240dpi, xhdpi is ~320dpi
 	# For most modern devices (>= 720p), hdpi is appropriate
-	if screen_density >= 240:
+	if density >= 240:
 		return "portrait_hdpi"
 
 	return "portrait_mdpi"
@@ -136,8 +150,14 @@ class DeviceTree:
 				f"Specified file doesn't exist: {image}"
 			)
 
-		# Extract the image
-		self.aik_manager = AIKManager()
+		# Extract the image using platform-appropriate unpacker
+		if _IS_WINDOWS:
+			LOGD("Using pure Python image unpacker (Windows)")
+			self.aik_manager = PurePythonImageUnpacker()
+		else:
+			LOGD("Using AIK (Linux/macOS)")
+			self.aik_manager = AIKManager()
+
 		self.image_info = self.aik_manager.unpackimg(image)
 
 		if not self.image_info.ramdisk:

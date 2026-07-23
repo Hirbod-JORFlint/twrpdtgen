@@ -8,13 +8,40 @@ It has been confirmed that this script supports images built starting from Andro
 
 Requires Python 3.8 or greater
 
+## Platform Support
+
+- **Linux**: Full support (recommended)
+- **macOS**: Full support
+- **Windows**: Supported via pure Python image unpacker (no external tools required)
+
 ## Installation
 
 ```sh
 pip3 install twrpdtgen
 ```
 
-Linux only: Be sure to have cpio installed in your system (Install cpio using `sudo apt install cpio` or `sudo pacman -S cpio` based on what package manager you're using)
+### Linux/macOS
+
+Be sure to have `cpio` installed in your system:
+```sh
+# Debian/Ubuntu
+sudo apt install cpio
+
+# Arch Linux
+sudo pacman -S cpio
+
+# macOS (via Homebrew)
+brew install cpio
+```
+
+### Windows
+
+No additional system packages required. The tool uses a pure Python image unpacker on Windows.
+
+If your recovery image uses LZ4 compression, install the optional LZ4 support:
+```sh
+pip3 install twrpdtgen[windows]
+```
 
 ## Instructions
 
