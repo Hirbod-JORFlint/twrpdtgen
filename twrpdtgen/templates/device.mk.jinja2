@@ -34,5 +34,32 @@ PRODUCT_PACKAGES += \
     update_engine \
     update_verifier \
     update_engine_sideload
+
+# A/B OTA encryption support
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/recovery/root/etc/recovery.fstab:$(TARGET_COPY_OUT_RECOVERY)/etc/recovery.fstab
+
+PRODUCT_PACKAGES += \
+    bootctl
+
+PRODUCT_PROPERTY_OVERRIDES += \
+    ro.build.date.utc=$(shell date -u +%s)
+
+PRODUCT_PROPERTY_OVERRIDES += \
+    ro.crypto.dm_default_key.enabled=true
+
+PRODUCT_PACKAGES += \
+    libfscrypt \
+    libcryptfses
+
+{% endif %}
+{% if has_encryption %}
+# Encryption support
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/recovery/root/etc/recovery.fstab:$(TARGET_COPY_OUT_RECOVERY)/etc/recovery.fstab
+
+PRODUCT_PACKAGES += \
+    libfscrypt \
+    libcryptfses
 {% endif %}
 

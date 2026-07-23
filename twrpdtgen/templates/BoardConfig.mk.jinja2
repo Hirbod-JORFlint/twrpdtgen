@@ -14,6 +14,7 @@ AB_OTA_PARTITIONS +=
 {%- endfor %}
 
 BOARD_USES_RECOVERY_AS_BOOT := true
+BOARD_BUILD_SYSTEM_ROOT_IMAGE := true
 
 {% endif %}
 # Architecture
@@ -196,11 +197,15 @@ TW_INPUT_BLACKLIST := "hbtp_vm"
 TW_USE_TOOLBOX := true
 {% if has_encryption %}
 TW_INCLUDE_CRYPTO := true
+TW_INCLUDE_CRYPTO_FB := true
+TW_CRYPTO_SYSTEM_MOUNT_FLAGS := "wait,formattable,first_stage_mount,check"
+TW_CRYPTO_SYSTEMMount_FS_FLAGS := "ro,barrier=1"
 {% endif %}
 {% if is_samsung %}
 TW_NO_REBOOT_BOOTLOADER := true
 TW_HAS_DOWNLOAD_MODE := true
 TW_NO_FLASH_CURRENT_TWRP := true
+TW_NO_REBOOT_RECOVERY := true
 {% endif %}
 {% if is_mediatek %}
 TW_BRIGHTNESS_PATH := /sys/class/leds/lcd-backlight/brightness

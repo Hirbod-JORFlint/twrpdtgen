@@ -52,6 +52,14 @@ FSTAB_LOCATIONS += [
 	Path() / d / "etc" / "recovery.fstab"
 	for d in ["system", "vendor"]
 ]
+FSTAB_LOCATIONS += [
+	Path() / "fstab",
+	Path() / "etc" / "fstab",
+]
+FSTAB_LOCATIONS += [
+	Path() / d / "etc" / "fstab"
+	for d in ["system", "vendor"]
+]
 
 INIT_RC_LOCATIONS = [
 	Path(),
@@ -65,6 +73,19 @@ MEDIATEK_PLATFORMS = ("mt", "mtk")
 
 # Samsung is known for using Download mode instead of bootloader
 SAMSUNG_BRANDS = ("samsung",)
+
+# Qualcomm platforms (for future use)
+QUALCOMM_PLATFORMS = ("msm", "sdm", "sm", "qcom")
+
+# Known encryption property values
+ENCRYPTION_STATES = ("encrypted", "unencrypted")
+ENCRYPTION_FILE_TYPE = "file"
+ENCRYPTION_FDE_FLAG = "ro.vold.forceencryption"
+ENCRYPTION_FBE_PROPS = (
+	"ro.crypto.state",
+	"ro.crypto.type",
+	"ro.vold.forceencryption",
+)
 
 
 def _is_mediatek_platform(platform: str) -> bool:
@@ -102,7 +123,7 @@ def _detect_tw_theme(screen_density: Optional[int]) -> str:
 	Args:
 		screen_density: The device's screen density (DPI), or None.
 
-	Returns:
+		Returns:
 		A TW_THEME value (e.g., "portrait_hdpi", "portrait_mdpi").
 	"""
 	if screen_density is None:
@@ -120,6 +141,35 @@ def _detect_tw_theme(screen_density: Optional[int]) -> str:
 		return "portrait_hdpi"
 
 	return "portrait_mdpi"
+
+
+def _is_qualcomm_platform(platform: str) -> bool:
+	"""Check if a platform string indicates a Qualcomm chipset.
+
+	Args:
+		platform: The platform identifier (e.g., "msm8937", "SDM845").
+
+	Returns:
+		True if the platform is Qualcomm-based.
+	"""
+	return platform.lower().startswith(QUALCOMM_PLATFORMS)
+
+
+def _detect_selinux_permissive(cmdline: str) -> bool:
+	"""Detect if SELinux is set to permissive in the kernel command line.
+
+	From the MediaTek guide: permissive mode is often set for MediaTek
+	devices via `androidboot.selinux=permissive` in the kernel cmdline.
+
+	Args:
+		cmdline: The kernel command line string.
+
+	Returns:
+		True if SELinux permissive mode is detected.
+	"""
+	if not cmdline:
+		return False
+	return "androidboot.selinux=permissive" in cmdline
 
 
 class DeviceTree:
@@ -184,6 +234,11 @@ class DeviceTree:
 		if self.is_mediatek:
 			LOGD(f"MediaTek platform detected: {self.device_info.platform}")
 
+		# Detect Qualcomm platform
+		self.is_qualcomm = _is_qualcomm_platform(self.device_info.platform)
+		if self.is_qualcomm:
+			LOGD(f"Qualcomm platform detected: {self.device_info.platform}")
+
 		# Detect Samsung device (uses Download mode instead of bootloader)
 		self.is_samsung = _is_samsung_device(self.device_info.brand)
 		if self.is_samsung:
@@ -191,6 +246,13 @@ class DeviceTree:
 
 		# Detect encryption support from build properties
 		self.has_encryption = self._detect_encryption()
+
+		# Detect SELinux permissive mode from kernel cmdline
+		self.is_selinux_permissive = _detect_selinux_permissive(
+			self.image_info.cmdline or ""
+		)
+		if self.is_selinux_permissive:
+			LOGD("SELinux permissive mode detected in kernel cmdline")
 
 		# Detect TWRP theme based on screen density
 		self.tw_theme = _detect_tw_theme(self.device_info.screen_density)
@@ -236,27 +298,33 @@ class DeviceTree:
 
 		Checks for common encryption-related properties in build.prop:
 		- ro.crypto.state (encrypted/unencrypted)
-		- ro.crypto.type (fileblock)
-		- Various FDE/FBE indicators
+		- ro.crypto.type (file for FBE)
+		- ro.vold.forceencryption (FDE indicator)
+		- ro.crypto.dm_default_key.enabled (dm-default-key FBE)
 
 		Returns:
 			True if the device appears to support encryption.
 		"""
 		# Check for encryption state
 		crypto_state = self.build_prop.get_prop("ro.crypto.state", "")
-		if crypto_state in ("encrypted", "unencrypted"):
+		if crypto_state in ENCRYPTION_STATES:
 			return True
 
 		# Check for file-based encryption type
 		crypto_type = self.build_prop.get_prop("ro.crypto.type", "")
-		if crypto_type == "file":
+		if crypto_type == ENCRYPTION_FILE_TYPE:
 			return True
 
 		# Check for legacy FDE indicators
-		fde_flag = self.build_prop.get_prop(
-			"ro.vold.forceencryption", ""
-		)
+		fde_flag = self.build_prop.get_prop(ENCRYPTION_FDE_FLAG, "")
 		if fde_flag:
+			return True
+
+		# Check for dm-default-key FBE (Android 10+)
+		dm_default_key = self.build_prop.get_prop(
+			"ro.crypto.dm_default_key.enabled", ""
+		)
+		if dm_default_key in ("true", "1"):
 			return True
 
 		return False
@@ -368,7 +436,9 @@ class DeviceTree:
 		                       has_encryption=self.has_encryption,
 		                       image_info=self.image_info,
 		                       is_mediatek=self.is_mediatek,
+		                       is_qualcomm=self.is_qualcomm,
 		                       is_samsung=self.is_samsung,
+		                       is_selinux_permissive=self.is_selinux_permissive,
 		                       tw_theme=self.tw_theme,
 		                       version=version,
 		                       **kwargs)

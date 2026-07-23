@@ -1,5 +1,6 @@
 """Tests for the pure Python image unpacker."""
 
+import bz2
 import gzip
 import struct
 import tempfile
@@ -11,6 +12,7 @@ from twrpdtgen.image_unpacker import (
     ANDROID_BOOT_MAGIC,
     CPIO_NEWC_MAGIC,
     CPIO_NEWC_MAGIC_END,
+    DTBO_MAGIC,
     _detect_compression,
     _decompress_ramdisk,
     _extract_cpio,
@@ -45,8 +47,8 @@ class TestHelpers:
     def test_detect_compression_lzma(self):
         assert _detect_compression(b"\xfd\x37\x7a\x58\x5a\x00") == "lzma"
 
-    def test_detect_compression_bzip2_as_lzma(self):
-        assert _detect_compression(b"BZh") == "lzma"
+    def test_detect_compression_bzip2(self):
+        assert _detect_compression(b"BZh") == "bzip2"
 
     def test_detect_compression_none(self):
         assert _detect_compression(b"\x00\x00\x00\x00") == "none"
@@ -56,9 +58,17 @@ class TestHelpers:
         compressed = gzip.compress(original)
         assert _decompress_ramdisk(compressed) == original
 
+    def test_decompress_ramdisk_bzip2(self):
+        original = b"hello world test data bzip2"
+        compressed = bz2.compress(original)
+        assert _decompress_ramdisk(compressed) == original
+
     def test_decompress_ramdisk_none(self):
         data = b"raw data"
         assert _decompress_ramdisk(data) == data
+
+    def test_dtbo_magic_constant(self):
+        assert DTBO_MAGIC == 0xD7B7AB1E
 
 
 class TestCpioExtraction:

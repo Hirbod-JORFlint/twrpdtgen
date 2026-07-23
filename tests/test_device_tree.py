@@ -5,8 +5,10 @@ from pathlib import Path
 from twrpdtgen.device_tree import (
     BUILDPROP_LOCATIONS,
     FSTAB_LOCATIONS,
+    _detect_selinux_permissive,
     _detect_tw_theme,
     _is_mediatek_platform,
+    _is_qualcomm_platform,
     _is_samsung_device,
 )
 
@@ -23,6 +25,17 @@ class TestHelperFunctions:
 
     def test_is_mediatek_default(self):
         assert _is_mediatek_platform("default") is False
+
+    def test_is_qualcomm_platform(self):
+        assert _is_qualcomm_platform("msm8937") is True
+        assert _is_qualcomm_platform("MSM8998") is True
+        assert _is_qualcomm_platform("sdm845") is True
+        assert _is_qualcomm_platform("SM8150") is True
+
+    def test_is_not_qualcomm_platform(self):
+        assert _is_qualcomm_platform("mt6735") is False
+        assert _is_qualcomm_platform("default") is False
+        assert _is_qualcomm_platform("exynos9810") is False
 
     def test_is_samsung_device(self):
         assert _is_samsung_device("samsung") is True
@@ -51,6 +64,18 @@ class TestHelperFunctions:
     def test_detect_tw_theme_boundary(self):
         assert _detect_tw_theme(239) == "portrait_mdpi"
         assert _detect_tw_theme(240) == "portrait_hdpi"
+
+    def test_detect_selinux_permissive_true(self):
+        cmdline = "console=ttyMSM0,115200n8 androidboot.selinux=permissive"
+        assert _detect_selinux_permissive(cmdline) is True
+
+    def test_detect_selinux_permissive_false(self):
+        cmdline = "console=ttyMSM0,115200n8 androidboot.hardware=qcom"
+        assert _detect_selinux_permissive(cmdline) is False
+
+    def test_detect_selinux_permissive_empty(self):
+        assert _detect_selinux_permissive("") is False
+        assert _detect_selinux_permissive(None) is False
 
 
 class TestBuildPropLocations:

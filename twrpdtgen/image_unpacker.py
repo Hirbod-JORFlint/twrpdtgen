@@ -25,6 +25,14 @@ from sebaubuntu_libs.liblogging import LOGD, LOGI
 # Android boot image magic bytes
 ANDROID_BOOT_MAGIC = b"ANDROID!"
 
+# AVB (Android Verified Boot) signatures
+AVB_FOOTER_MAGIC = b"AVBf"
+AVB_HASHTREE_MAGIC = b"AVBh"
+AVB_METADATA_MAGIC = b"AVB0"
+
+# DTBO (Device Tree Blob Overlay) magic
+DTBO_MAGIC = 0xD7B7AB1E
+
 # Compression types for ramdisk
 RAMDISK_COMPRESSION_GZIP = "gzip"
 RAMDISK_COMPRESSION_LZ4 = "lz4"
@@ -35,6 +43,9 @@ RAMDISK_COMPRESSION_NONE = "none"
 # cpio magic
 CPIO_NEWC_MAGIC = b"070701"
 CPIO_NEWC_MAGIC_END = b"00000000"
+
+# Compression types for ramdisk (additional)
+RAMDISK_COMPRESSION_BZIP2 = "bzip2"
 
 
 def _read_uint32(data: bytes, offset: int) -> int:
@@ -63,7 +74,7 @@ def _detect_compression(data: bytes) -> str:
 	if data[:6] == b"\xfd\x37\x7a\x58\x5a\x00":
 		return RAMDISK_COMPRESSION_LZMA
 	if data[:3] == b"BZh":
-		return RAMDISK_COMPRESSION_LZMA
+		return RAMDISK_COMPRESSION_BZIP2
 	return RAMDISK_COMPRESSION_NONE
 
 
@@ -86,6 +97,9 @@ def _decompress_ramdisk(data: bytes) -> bytes:
 		return gzip.decompress(data)
 	elif compression == RAMDISK_COMPRESSION_LZMA:
 		return lzma.decompress(data)
+	elif compression == RAMDISK_COMPRESSION_BZIP2:
+		import bz2
+		return bz2.decompress(data)
 	elif compression == RAMDISK_COMPRESSION_LZ4:
 		try:
 			import lz4.frame
@@ -329,7 +343,7 @@ class PurePythonImageUnpacker:
 					# Check if there's a valid DTBO header (0xD7B7AB1E)
 					if len(image_data) > candidate_offset + 4:
 						dtbo_magic = _read_uint32(image_data, candidate_offset)
-						if dtbo_magic == 0xD7B7AB1E:
+						if dtbo_magic == DTBO_MAGIC:
 							# DTBO v1 header: magic(4) + total_size(4) + header_size(4) + dt_entry_size(4) + dt_entry_count(4) + dt_entries_offset(4) + page_size(4) + version(4)
 							if len(image_data) > candidate_offset + 32:
 								total_dtbo_size = _read_uint32(image_data, candidate_offset + 4)
@@ -364,8 +378,23 @@ class PurePythonImageUnpacker:
 		# Check for AVB footer at the end of the image
 		if len(image_data) >= 64:
 			avb_footer = image_data[-64:]
-			if avb_footer[:4] == b"AVBf":
+			if avb_footer[:4] == AVB_FOOTER_MAGIC:
 				sigtype = "AVBv2"
+			elif avb_footer[:4] == AVB_HASHTREE_MAGIC:
+				sigtype = "AVBv2"
+			elif avb_footer[:4] == AVB_METADATA_MAGIC:
+				sigtype = "AVBv2"
+
+		# Check for AVB hashtree in boot image (common on A/B devices)
+		if sigtype == "unknown" and len(image_data) >= 4:
+			# AVB hashtree is typically appended after the boot image
+			# Check the last 64 bytes for AVB markers
+			for check_offset in [64, 128, 256]:
+				if len(image_data) >= check_offset:
+					marker = image_data[-check_offset:][:4]
+					if marker in (AVB_FOOTER_MAGIC, AVB_HASHTREE_MAGIC, AVB_METADATA_MAGIC):
+						sigtype = "AVBv2"
+						break
 
 		# Build origsize string (total image size)
 		origsize = str(len(image_data))
