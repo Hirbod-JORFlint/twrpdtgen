@@ -93,29 +93,100 @@ EMULATED_STORAGE_MOUNT_POINTS = ("/sdcard", "/internal_sd", "/internal_sdcard", 
 SDCARD_MOUNT_POINTS = ("/sdcard", "/external_sd", "/usb-otg")
 
 # Partition display names for TWRP fstab (from guide1: display= flag)
+# Includes all known Qualcomm, MediaTek, Samsung, and Xiaomi partitions
 FSTAB_PARTITION_DISPLAY_NAMES = {
+	# User-facing system partitions
 	"/": "System",
 	"/system": "System",
 	"/vendor": "Vendor",
 	"/cache": "Cache",
 	"/data": "Data",
-	"/efs": "EFS",
+	"/cust": "Cust",
 	"/preload": "Preload",
+	"/oeminfo": "OEMinfo",
+	"/splash2": "Splash2",
+	# Internal/external storage
+	"/sdcard": "Internal Storage",
 	"/external_sd": "Micro SDcard",
 	"/usb-otg": "USB-OTG",
+	# Modem/Radio
 	"/modem": "Modem",
+	"/modemst1": "Modem ST1",
+	"/modemst2": "Modem ST2",
 	"/mdm": "Modem",
+	"/fsg": "FSG",
+	"/fsc": "FSC",
+	"/mcfg": "MCFG",
+	# DSP/Audio
+	"/dsp": "DSP",
+	"/dspbak": "DSP Backup",
+	# Qualcomm Boot
+	"/aboot": "Android Bootloader",
+	"/abootbak": "Android Bootloader Backup",
+	"/sbl1": "SBL1",
+	"/sbl1bak": "SBL1 Backup",
+	"/rpm": "RPM",
+	"/rpmbak": "RPM Backup",
+	# Qualcomm Display
+	"/splash": "Splash Screen",
+	"/dtbo": "DTBO",
+	"/dtbobak": "DTBO Backup",
+	# Security/TrustZone
+	"/tz": "TrustZone",
+	"/tzbak": "TrustZone Backup",
+	"/cmnlib": "CMN Library",
+	"/cmnlibbak": "CMN Library Backup",
+	"/cmnlib64": "CMN Library 64-bit",
+	"/cmnlib64bak": "CMN Library 64-bit Backup",
+	"/keymaster": "Keymaster",
+	"/keymasterbak": "Keymaster Backup",
+	"/devcfg": "Device Config",
+	"/devcfgbak": "Device Config Backup",
+	"/devinfo": "Device Info",
+	"/keystore": "Keystore",
+	"/persist": "Persist",
+	"/persistbak": "Persist Backup",
+	"/sec": "SEC",
+	"/dpo": "DPO",
+	"/apdp": "APDP",
+	"/msadp": "MSADP",
+	"/mdtp": "MDTP",
+	"/mdtpbak": "MDTP Backup",
+	# Verified Boot
+	"/vbmeta": "Verified Boot Meta",
+	"/vbmetabak": "Verified Boot Meta Backup",
+	# EFS (Samsung/Qualcomm)
+	"/efs": "EFS",
+	"/efs1": "EFS",
+	"/efs2": "EFS 2",
+	"/efs3": "EFS 3",
+	# Debug/Logging
+	"/logdump": "Log Dump",
+	"/minidump": "Mini Dump",
+	"/exaid": "EXAID",
 	"/misc": "Misc",
-	"/cust": "Cust",
-	"/splash2": "Splash2",
-	"/oeminfo": "OEMinfo",
-	"/sdcard": "Internal Storage",
+	"/dip": "DIP",
+	"/gsort": "GSort",
+	"/limits": "Limits",
+	"/config": "Config",
+	"/syscfg": "SysConfig",
+	"/mota": "MOTA",
+	"/ssd": "SSD",
+	# Qualcomm bootloader/debug
+	"/bk1": "Backup 1",
+	"/bk2": "Backup 2",
+	"/bk3": "Backup 3",
+	"/bk4": "Backup 4",
+	"/DDR": "DDR",
 }
 
 # Partitions that should be backed up by default (from guide1: backup= flag)
+# Only user-facing partitions that users would want to restore
 FSTAB_BACKUP_PARTITIONS = {
 	"/system", "/vendor", "/cache", "/data",
-	"/efs", "/preload", "/cust", "/oeminfo",
+	"/efs", "/efs1", "/efs2", "/efs3",
+	"/preload", "/cust", "/oeminfo",
+	"/modem",
 }
 
 # Removable storage partitions (from guide1: removable + storage + wipeingui)
