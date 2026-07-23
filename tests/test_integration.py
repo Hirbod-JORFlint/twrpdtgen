@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from twrpdtgen.device_tree import DeviceTree
+from twrpdtgen.device_tree import DeviceTree, _generate_twrp_fstab
 
 RECOVERY_IMG = Path(__file__).parent.parent / "recovery.img"
 
@@ -215,3 +215,71 @@ class TestDeviceTreeGeneration:
             assert "PRODUCT_BRAND" in content
             assert "PRODUCT_MODEL" in content
             assert "PRODUCT_MANUFACTURER" in content
+
+    def test_fstab_has_display_names(self):
+        """Verify fstab has display= flags for all partitions (guide1)."""
+        with DeviceTree(image=RECOVERY_IMG) as dt:
+            fstab_content = _generate_twrp_fstab(dt.fstab, has_encryption=dt.has_encryption)
+            # Root should have a display name
+            assert "display=System" in fstab_content
+            # Cache should have a display name
+            assert "display=Cache" in fstab_content
+            # Data should have a display name
+            assert "display=Data" in fstab_content
+
+    def test_fstab_has_backup_flags(self):
+        """Verify fstab has backup=1 for backupable partitions (guide1)."""
+        with DeviceTree(image=RECOVERY_IMG) as dt:
+            fstab_content = _generate_twrp_fstab(dt.fstab, has_encryption=dt.has_encryption)
+            assert "backup=1" in fstab_content
+
+    def test_fstab_has_storage_flag(self):
+        """Verify fstab has storage flag for sdcard (guide1)."""
+        with DeviceTree(image=RECOVERY_IMG) as dt:
+            fstab_content = _generate_twrp_fstab(dt.fstab, has_encryption=dt.has_encryption)
+            # /sdcard should have storage flag
+            for line in fstab_content.split("\n"):
+                if line.startswith("/sdcard"):
+                    assert "storage" in line
+                    break
+
+    def test_fstab_encryption_length_flag(self):
+        """Verify fstab has length= flag for /data when encrypted (guide1)."""
+        with DeviceTree(image=RECOVERY_IMG) as dt:
+            fstab_with_enc = _generate_twrp_fstab(dt.fstab, has_encryption=True)
+            fstab_no_enc = _generate_twrp_fstab(dt.fstab, has_encryption=False)
+            # With encryption, /data should have length=-16384
+            for line in fstab_with_enc.split("\n"):
+                if line.startswith("/data"):
+                    assert "length=-16384" in line
+                    break
+            # Without encryption, /data should NOT have length=
+            for line in fstab_no_enc.split("\n"):
+                if line.startswith("/data"):
+                    assert "length=" not in line
+                    break
+
+    def test_fstab_has_aligned_columns(self):
+        """Verify fstab entries have aligned columns."""
+        with DeviceTree(image=RECOVERY_IMG) as dt:
+            fstab_content = _generate_twrp_fstab(dt.fstab, has_encryption=dt.has_encryption)
+            lines = [l for l in fstab_content.split("\n") if l.strip()]
+            # All lines should have at least mount_point + fs_type + src + flags
+            for line in lines:
+                assert "flags=" in line, f"Missing flags in line: {line}"
+
+    def test_fstab_content_in_device_tree(self):
+        """Verify the written fstab uses enhanced flags."""
+        with DeviceTree(image=RECOVERY_IMG) as dt:
+            folder = dt.dump_to_folder(self.output_dir)
+            fstab = folder / "recovery" / "root" / "etc" / "recovery.fstab"
+            content = fstab.read_text(encoding="utf-8")
+            assert "display=System" in content
+            assert "display=Cache" in content
+            assert "display=Data" in content
+            assert "backup=1" in content
+            # /sdcard should have storage
+            for line in content.split("\n"):
+                if line.startswith("/sdcard"):
+                    assert "storage" in line
+                    break

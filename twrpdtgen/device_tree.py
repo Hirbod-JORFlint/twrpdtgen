@@ -92,6 +92,119 @@ EMULATED_STORAGE_MOUNT_POINTS = ("/sdcard", "/internal_sd", "/internal_sdcard", 
 # Mount points that indicate an external/removable SD card
 SDCARD_MOUNT_POINTS = ("/sdcard", "/external_sd", "/usb-otg")
 
+# Partition display names for TWRP fstab (from guide1: display= flag)
+FSTAB_PARTITION_DISPLAY_NAMES = {
+	"/": "System",
+	"/system": "System",
+	"/vendor": "Vendor",
+	"/cache": "Cache",
+	"/data": "Data",
+	"/efs": "EFS",
+	"/preload": "Preload",
+	"/external_sd": "Micro SDcard",
+	"/usb-otg": "USB-OTG",
+	"/modem": "Modem",
+	"/mdm": "Modem",
+	"/misc": "Misc",
+	"/cust": "Cust",
+	"/splash2": "Splash2",
+	"/oeminfo": "OEMinfo",
+	"/sdcard": "Internal Storage",
+}
+
+# Partitions that should be backed up by default (from guide1: backup= flag)
+FSTAB_BACKUP_PARTITIONS = {
+	"/system", "/vendor", "/cache", "/data",
+	"/efs", "/preload", "/cust", "/oeminfo",
+}
+
+# Removable storage partitions (from guide1: removable + storage + wipeingui)
+FSTAB_REMOVABLE_STORAGE = ("/external_sd", "/usb-otg")
+
+# Internal storage partitions (from guide1: storage flag)
+FSTAB_INTERNAL_STORAGE = ("/sdcard", "/internal_sd", "/internal_sdcard", "/emmc")
+
+
+def _generate_twrp_fstab(fstab, has_encryption: bool = False) -> str:
+	"""Generate an enhanced TWRP recovery.fstab with proper flags from guide1.
+
+	Enhances the basic fstab output with TWRP-specific flags:
+	- display= : Human-readable name for the GUI (guide1: display=)
+	- backup=1 : Whether the partition can be backed up (guide1: backup=)
+	- storage  : Whether the partition can be used as storage (guide1: storage)
+	- removable : Whether the partition may not always be present (guide1: removable)
+	- wipeingui : Whether the partition shows in advanced wipe menu (guide1: wipeingui)
+	- length=  : Reserved space for encryption key (guide1: length=)
+
+	Args:
+		fstab: A Fstab object with parsed fstab entries.
+		has_encryption: Whether the device supports encryption (affects length= flag).
+
+	Returns:
+		A formatted fstab string with TWRP flags.
+	"""
+	lines = []
+
+	# Calculate column widths for alignment
+	mount_point_width = max(len(e.mount_point) for e in fstab.entries) + 2
+	fs_type_width = max(len(e.fs_type) for e in fstab.entries) + 2
+	src_width = max(len(e.src) for e in fstab.entries) + 2
+
+	for entry in fstab.entries:
+		# Build TWRP flags list
+		twrp_flags = []
+
+		# Add display name
+		display_name = FSTAB_PARTITION_DISPLAY_NAMES.get(
+			entry.mount_point,
+			entry.mount_point.lstrip("/").replace("_", " ").replace("-", " ").title()
+		)
+		if " " in display_name:
+			twrp_flags.append(f'display="{display_name}"')
+		else:
+			twrp_flags.append(f"display={display_name}")
+
+		# Add backup flag for backupable partitions
+		if entry.mount_point in FSTAB_BACKUP_PARTITIONS:
+			twrp_flags.append("backup=1")
+
+		# Add storage flag for internal storage
+		if entry.mount_point in FSTAB_INTERNAL_STORAGE:
+			twrp_flags.append("storage")
+
+		# Add removable + storage + wipeingui for removable storage
+		if entry.mount_point in FSTAB_REMOVABLE_STORAGE:
+			twrp_flags.append("storage")
+			twrp_flags.append("wipeingui")
+			twrp_flags.append("removable")
+
+		# Preserve logical and slotselect flags from the original fstab
+		if entry.is_logical():
+			twrp_flags.append("logical")
+		if entry.is_slotselect():
+			twrp_flags.append("slotselect")
+
+		# Add length= for /data when encryption is detected (guide1: length=)
+		# This reserves space at the end of /data for the decryption key
+		length_flag = ""
+		if entry.mount_point == "/data" and has_encryption:
+			length_flag = " length=-16384"
+
+		# Pad columns for alignment
+		mount_pad = " " * (mount_point_width - len(entry.mount_point))
+		fs_type_pad = " " * (fs_type_width - len(entry.fs_type))
+		src_pad = " " * (src_width - len(entry.src))
+
+		flags_str = "flags=" + ";".join(twrp_flags)
+		lines.append(
+			f"{entry.mount_point}{mount_pad}{entry.fs_type}{fs_type_pad}"
+			f"{entry.src}{src_pad}{flags_str}{length_flag}"
+		)
+
+	# End with a trailing newline
+	lines.append("")
+	return "\n".join(lines)
+
 
 def _detect_emulated_storage(fstab) -> bool:
 	"""Detect if the device uses emulated storage on /data/media.
@@ -562,7 +675,9 @@ class DeviceTree:
 		LOGD("Copying fstab...")
 		fstab_etc_path = recovery_root_path / "etc"
 		fstab_etc_path.mkdir(parents=True, exist_ok=True)
-		(fstab_etc_path / "recovery.fstab").write_text(self.fstab.format(twrp=True))
+		(fstab_etc_path / "recovery.fstab").write_text(
+			_generate_twrp_fstab(self.fstab, has_encryption=self.has_encryption)
+		)
 
 		LOGD("Copying init scripts...")
 		for init_rc in self.init_rcs:

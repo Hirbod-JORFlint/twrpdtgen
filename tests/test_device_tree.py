@@ -5,6 +5,9 @@ from pathlib import Path
 from twrpdtgen.device_tree import (
     BUILDPROP_LOCATIONS,
     FSTAB_LOCATIONS,
+    FSTAB_BACKUP_PARTITIONS,
+    FSTAB_PARTITION_DISPLAY_NAMES,
+    FSTAB_REMOVABLE_STORAGE,
     _detect_emulated_storage,
     _detect_has_sdcard,
     _detect_hardware_mismatch,
@@ -12,6 +15,7 @@ from twrpdtgen.device_tree import (
     _detect_touchscreen_orientation,
     _detect_tw_theme,
     _detect_userdata_fs_type,
+    _generate_twrp_fstab,
     _is_mediatek_platform,
     _is_qualcomm_platform,
     _is_samsung_device,
@@ -278,3 +282,138 @@ class TestTemplateRendering:
         )
         assert "Copyright" in result
         assert "Apache-2.0" in result
+
+
+class TestGenerateTwrpFstab:
+    """Tests for the enhanced TWRP fstab generator (guide1 flags)."""
+
+    @staticmethod
+    def _make_fstab_entry(mount_point, fs_type, src, mnt_flags=None, fs_flags=None):
+        class MockEntry:
+            def __init__(self, mount_point, fs_type, src, mnt_flags, fs_flags):
+                self.mount_point = mount_point
+                self.fs_type = fs_type
+                self.src = src
+                self.mnt_flags = mnt_flags or []
+                self.fs_flags = fs_flags or []
+            def is_logical(self):
+                return "logical" in self.fs_flags
+            def is_slotselect(self):
+                return "slotselect" in self.fs_flags
+        return MockEntry(mount_point, fs_type, src, mnt_flags or [], fs_flags or [])
+
+    @staticmethod
+    def _make_fstab(entries):
+        class MockFstab:
+            def __init__(self, entries):
+                self.entries = entries
+        return MockFstab(entries)
+
+    def test_display_name_system_root(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/", "ext4", "/dev/block/system"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "display=System" in result
+
+    def test_display_name_data(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "display=Data" in result
+
+    def test_backup_flag_on_system(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/system", "ext4", "/dev/block/system"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "backup=1" in result
+
+    def test_backup_flag_on_data(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "backup=1" in result
+
+    def test_no_backup_flag_on_boot(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/boot", "emmc", "/dev/block/boot"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        # /boot should not have backup=1 (not in FSTAB_BACKUP_PARTITIONS)
+        assert "backup=1" not in result
+
+    def test_storage_flag_on_sdcard(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/sdcard", "vfat", "/dev/block/mmcblk1p1"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "storage" in result
+
+    def test_removable_flags_on_external_sd(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/external_sd", "vfat", "/dev/block/mmcblk1p1"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "storage" in result
+        assert "wipeingui" in result
+        assert "removable" in result
+
+    def test_removable_flags_on_usb_otg(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/usb-otg", "vfat", "/dev/block/sda1"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "storage" in result
+        assert "wipeingui" in result
+        assert "removable" in result
+
+    def test_length_flag_with_encryption(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+        ])
+        result = _generate_twrp_fstab(fstab, has_encryption=True)
+        assert "length=-16384" in result
+
+    def test_no_length_flag_without_encryption(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+        ])
+        result = _generate_twrp_fstab(fstab, has_encryption=False)
+        assert "length=" not in result
+
+    def test_slotselect_preserved(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/system", "ext4", "/dev/block/system",
+                                   fs_flags=["slotselect"]),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "slotselect" in result
+
+    def test_logical_preserved(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/system", "ext4", "/dev/block/system",
+                                   fs_flags=["logical"]),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "logical" in result
+
+    def test_all_entries_have_flags(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/system", "ext4", "/dev/block/system"),
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+            self._make_fstab_entry("/cache", "ext4", "/dev/block/cache"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        for line in result.split("\n"):
+            if line.strip():
+                assert "flags=" in line
+
+    def test_trailing_newline(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/system", "ext4", "/dev/block/system"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert result.endswith("\n")
