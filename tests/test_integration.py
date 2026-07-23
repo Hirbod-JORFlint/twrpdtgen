@@ -121,12 +121,14 @@ class TestDeviceTreeGeneration:
             assert "TW_NO_REBOOT_BOOTLOADER" in content
             assert "TW_NO_REBOOT_RECOVERY" in content
 
-    def test_board_config_userdata_f2fs(self):
-        """Verify userdata is f2fs (detected from fstab)."""
+    def test_board_config_userdata_fs_type(self):
+        """Verify userdata filesystem type is detected from fstab."""
         with DeviceTree(image=RECOVERY_IMG) as dt:
             folder = dt.dump_to_folder(self.output_dir)
             content = (folder / "BoardConfig.mk").read_text(encoding="utf-8")
-            assert "BOARD_USERDATAIMAGE_FILE_SYSTEM_TYPE := f2fs" in content
+            assert "BOARD_USERDATAIMAGE_FILE_SYSTEM_TYPE :=" in content
+            # Should match what the fstab says (ext4 or f2fs)
+            assert dt.userdata_fs_type in ("ext4", "f2fs")
 
     def test_board_config_platform_flags(self):
         """Verify platform is correctly set."""

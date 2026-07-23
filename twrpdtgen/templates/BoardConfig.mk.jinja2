@@ -151,7 +151,7 @@ BOARD_BOOTIMAGE_PARTITION_SIZE := {{ image_info.origsize }}
 BOARD_RECOVERYIMAGE_PARTITION_SIZE := {{ image_info.origsize }}
 BOARD_HAS_LARGE_FILESYSTEM := true
 BOARD_SYSTEMIMAGE_PARTITION_TYPE := ext4
-BOARD_USERDATAIMAGE_FILE_SYSTEM_TYPE := f2fs
+BOARD_USERDATAIMAGE_FILE_SYSTEM_TYPE := {{ userdata_fs_type }}
 BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE := ext4
 TARGET_COPY_OUT_VENDOR := vendor
 BOARD_USES_METADATA_PARTITION := true
@@ -161,6 +161,12 @@ BUILD_BROKEN_DUP_RULES := true
 BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES := true
 SELINUX_IGNORE_NEVERALLOWS := true
 BOARD_VNDK_VERSION := current
+{% if has_emulated_storage %}
+RECOVERY_SDCARD_ON_DATA := true
+{% endif %}
+{% if not has_sdcard %}
+BOARD_HAS_NO_REAL_SDCARD := true
+{% endif %}
 {% if device_info.device_uses_dynamic_partitions %}
 BOARD_SUPER_PARTITION_SIZE := 9126805504 # TODO: Fix hardcoded value
 BOARD_SUPER_PARTITION_GROUPS := {{ device_info.manufacturer }}_dynamic_partitions
@@ -221,6 +227,15 @@ TW_USE_MODEL_HARDWARE_ID_FOR_DEVICE_ID := true
 TW_EXCLUDE_DEFAULT_USB_INIT := true
 TW_NO_REBOOT_BOOTLOADER := true
 TW_NO_REBOOT_RECOVERY := true
+{% if touchscreen_orientation.swap_xy %}
+RECOVERY_TOUCHSCREEN_SWAP_XY := true
+{% endif %}
+{% if touchscreen_orientation.flip_x %}
+RECOVERY_TOUCHSCREEN_FLIP_X := true
+{% endif %}
+{% if touchscreen_orientation.flip_y %}
+RECOVERY_TOUCHSCREEN_FLIP_Y := true
+{% endif %}
 {% if has_encryption %}
 TW_INCLUDE_CRYPTO := true
 TW_INCLUDE_CRYPTO_FB := true
@@ -234,6 +249,8 @@ BOARD_USES_QCOM_FBE_DECRYPTION := true
 {% if is_samsung %}
 TW_HAS_DOWNLOAD_MODE := true
 TW_INCLUDE_INJECTTWRP := true
+# Samsung devices typically use bootimage (not recoveryimage) for TWRP
+# make -j# bootimage instead of make -j# recoveryimage
 {% endif %}
 {% if is_mediatek %}
 TW_BRIGHTNESS_PATH := /sys/class/leds/lcd-backlight/brightness

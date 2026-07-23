@@ -87,6 +87,118 @@ ENCRYPTION_FBE_PROPS = (
 	"ro.vold.forceencryption",
 )
 
+# Mount points that indicate emulated storage (from guide1: RECOVERY_SDCARD_ON_DATA)
+EMULATED_STORAGE_MOUNT_POINTS = ("/sdcard", "/internal_sd", "/internal_sdcard", "/emmc")
+# Mount points that indicate an external/removable SD card
+SDCARD_MOUNT_POINTS = ("/sdcard", "/external_sd", "/usb-otg")
+
+
+def _detect_emulated_storage(fstab) -> bool:
+	"""Detect if the device uses emulated storage on /data/media.
+
+	From guide1: RECOVERY_SDCARD_ON_DATA enables proper handling of
+	/data/media on devices that have this folder for storage. If no
+	references to /sdcard, /internal_sd, /internal_sdcard, or /emmc
+	are found in the fstab, TWRP automatically assumes emulated storage.
+
+	Args:
+		fstab: A Fstab object with parsed fstab entries.
+
+	Returns:
+		True if emulated storage is detected.
+	"""
+	for entry in fstab.entries:
+		if entry.mount_point in EMULATED_STORAGE_MOUNT_POINTS:
+			return True
+		# Check for "media" in mount options (indicates /data/media)
+		for flag in entry.mnt_flags:
+			if "media" in flag.lower():
+				return True
+		for flag in entry.fs_flags:
+			if "noemulatedsd" in flag.lower():
+				return True
+	return False
+
+
+def _detect_has_sdcard(fstab) -> bool:
+	"""Detect if the fstab contains an SD card or external storage entry.
+
+	From guide1: sdcard/external_sd/usb-otg entries indicate physical
+	storage is available.
+
+	Args:
+		fstab: A Fstab object with parsed fstab entries.
+
+	Returns:
+		True if an SD card or external storage entry is found.
+	"""
+	for entry in fstab.entries:
+		if entry.mount_point in ("/external_sd", "/usb-otg"):
+			return True
+		if "removable" in entry.fs_flags:
+			return True
+	return False
+
+
+def _detect_userdata_fs_type(fstab) -> str:
+	"""Detect the filesystem type for /data from the fstab.
+
+	From guide1: the fstab specifies the filesystem for each partition.
+	We extract the /data filesystem type instead of hardcoding it.
+
+	Args:
+		fstab: A Fstab object with parsed fstab entries.
+
+	Returns:
+		Filesystem type string (e.g., "ext4", "f2fs").
+	"""
+	for entry in fstab.entries:
+		if entry.mount_point == "/data":
+			fs_type = entry.fs_type.lower()
+			if fs_type in ("ext4", "f2fs"):
+				return fs_type
+	return "ext4"  # Default fallback
+
+
+def _detect_touchscreen_orientation(build_prop):
+	"""Detect touch screen orientation flags from build properties.
+
+	From guide1: RECOVERY_TOUCHSCREEN_SWAP_XY, RECOVERY_TOUCHSCREEN_FLIP_X,
+	RECOVERY_TOUCHSCREEN_FLIP_Y can fix touchscreen rotation issues.
+
+	Args:
+		build_prop: A BuildProp object with parsed properties.
+
+	Returns:
+		A dict with orientation flags:
+		{
+			"swap_xy": bool,
+			"flip_x": bool,
+			"flip_y": bool,
+		}
+	"""
+	result = {"swap_xy": False, "flip_x": False, "flip_y": False}
+
+	# Check ro.sf.hwrotation for screen rotation
+	hwrotation = build_prop.get_prop("ro.sf.hwrotation", "")
+	if hwrotation:
+		try:
+			rotation = int(hwrotation)
+			if rotation in (90, 270):
+				result["swap_xy"] = True
+			if rotation == 180:
+				result["flip_x"] = True
+				result["flip_y"] = True
+		except (ValueError, TypeError):
+			pass
+
+	# Check ro.input.devices for touchscreen rotation hints
+	input_devices = build_prop.get_prop("ro.input.devices", "")
+	if input_devices and "flip" in input_devices.lower():
+		result["flip_x"] = True
+
+	return result
+
 
 def _is_mediatek_platform(platform: str) -> bool:
 	"""Check if a platform string indicates a MediaTek chipset.
@@ -324,6 +436,21 @@ class DeviceTree:
 
 		self.fstab = fstab
 
+		# Analyze fstab for storage configuration (from guide1)
+		self.has_emulated_storage = _detect_emulated_storage(fstab)
+		if self.has_emulated_storage:
+			LOGD("Emulated storage detected in fstab (RECOVERY_SDCARD_ON_DATA)")
+
+		self.has_sdcard = _detect_has_sdcard(fstab)
+		if not self.has_sdcard:
+			LOGD("No SD card detected in fstab (BOARD_HAS_NO_REAL_SDCARD)")
+
+		self.userdata_fs_type = _detect_userdata_fs_type(fstab)
+		LOGD(f"Userdata filesystem type: {self.userdata_fs_type}")
+
+		# Detect touch screen orientation from build properties
+		self.touchscreen_orientation = _detect_touchscreen_orientation(self.build_prop)
+
 		# Search for init rc files
 		# Per guide3: TWRP uses init.recovery.*.rc files for recovery-specific
 		# configuration. Also look for factory_init.*.rc and meta_init.*.rc
@@ -489,14 +616,18 @@ class DeviceTree:
 		                       current_year=self.current_year,
 		                       device_info=self.device_info,
 		                       fstab=self.fstab,
+		                       has_emulated_storage=self.has_emulated_storage,
 		                       has_encryption=self.has_encryption,
 		                       has_hardware_mismatch=self.has_hardware_mismatch,
+		                       has_sdcard=self.has_sdcard,
 		                       image_info=self.image_info,
 		                       is_mediatek=self.is_mediatek,
 		                       is_qualcomm=self.is_qualcomm,
 		                       is_samsung=self.is_samsung,
 		                       is_selinux_permissive=self.is_selinux_permissive,
+		                       touchscreen_orientation=self.touchscreen_orientation,
 		                       tw_theme=self.tw_theme,
+		                       userdata_fs_type=self.userdata_fs_type,
 		                       version=version,
 		                       **kwargs)
 

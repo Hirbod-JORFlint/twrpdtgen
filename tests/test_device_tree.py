@@ -5,9 +5,13 @@ from pathlib import Path
 from twrpdtgen.device_tree import (
     BUILDPROP_LOCATIONS,
     FSTAB_LOCATIONS,
+    _detect_emulated_storage,
+    _detect_has_sdcard,
     _detect_hardware_mismatch,
     _detect_selinux_permissive,
+    _detect_touchscreen_orientation,
     _detect_tw_theme,
+    _detect_userdata_fs_type,
     _is_mediatek_platform,
     _is_qualcomm_platform,
     _is_samsung_device,
@@ -91,6 +95,141 @@ class TestHelperFunctions:
         assert _detect_hardware_mismatch("", "sagit") is False
         assert _detect_hardware_mismatch("qcom", "") is False
         assert _detect_hardware_mismatch("", "") is False
+
+
+class TestFstabAnalysis:
+    """Tests for fstab analysis helpers (from guide1)."""
+
+    @staticmethod
+    def _make_fstab_entry(mount_point, fs_type, src, mnt_flags=None, fs_flags=None):
+        """Create a mock FstabEntry-like object."""
+        class MockEntry:
+            def __init__(self, mount_point, fs_type, src, mnt_flags, fs_flags):
+                self.mount_point = mount_point
+                self.fs_type = fs_type
+                self.src = src
+                self.mnt_flags = mnt_flags or []
+                self.fs_flags = fs_flags or []
+        return MockEntry(mount_point, fs_type, src, mnt_flags or [], fs_flags or [])
+
+    @staticmethod
+    def _make_fstab(entries):
+        """Create a mock Fstab-like object."""
+        class MockFstab:
+            def __init__(self, entries):
+                self.entries = entries
+        return MockFstab(entries)
+
+    def test_detect_emulated_storage_with_sdcard(self):
+        """Device with /sdcard in fstab uses emulated storage."""
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+            self._make_fstab_entry("/sdcard", "vfat", "/dev/block/mmcblk1p1"),
+        ])
+        assert _detect_emulated_storage(fstab) is True
+
+    def test_detect_emulated_storage_with_noemulatedsd(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "f2fs", "/dev/block/userdata",
+                                   fs_flags=["wait", "check", "noemulatedsd"]),
+        ])
+        assert _detect_emulated_storage(fstab) is True
+
+    def test_detect_no_emulated_storage(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+            self._make_fstab_entry("/external_sd", "vfat", "/dev/block/mmcblk1p1"),
+        ])
+        assert _detect_emulated_storage(fstab) is False
+
+    def test_detect_sdcard_with_external(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/external_sd", "vfat", "/dev/block/mmcblk1p1",
+                                   fs_flags=["removable"]),
+        ])
+        assert _detect_has_sdcard(fstab) is True
+
+    def test_detect_sdcard_with_usb_otg(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/usb-otg", "vfat", "/dev/block/sda1",
+                                   fs_flags=["removable"]),
+        ])
+        assert _detect_has_sdcard(fstab) is True
+
+    def test_detect_no_sdcard(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+            self._make_fstab_entry("/sdcard", "vfat", "/dev/block/mmcblk1p1"),
+        ])
+        assert _detect_has_sdcard(fstab) is False
+
+    def test_detect_userdata_fs_type_ext4(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+        ])
+        assert _detect_userdata_fs_type(fstab) == "ext4"
+
+    def test_detect_userdata_fs_type_f2fs(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "f2fs", "/dev/block/userdata"),
+        ])
+        assert _detect_userdata_fs_type(fstab) == "f2fs"
+
+    def test_detect_userdata_fs_type_default(self):
+        """No /data entry should default to ext4."""
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/system", "ext4", "/dev/block/system"),
+        ])
+        assert _detect_userdata_fs_type(fstab) == "ext4"
+
+
+class TestTouchscreenOrientation:
+    """Tests for touch screen orientation detection (from guide1)."""
+
+    @staticmethod
+    def _make_build_prop(props):
+        """Create a mock BuildProp-like object."""
+        class MockBuildProp:
+            def __init__(self, props):
+                self._props = props
+            def get_prop(self, key, default=""):
+                return self._props.get(key, default)
+        return MockBuildProp(props)
+
+    def test_swap_xy_rotation_90(self):
+        bp = self._make_build_prop({"ro.sf.hwrotation": "90"})
+        result = _detect_touchscreen_orientation(bp)
+        assert result["swap_xy"] is True
+
+    def test_swap_xy_rotation_270(self):
+        bp = self._make_build_prop({"ro.sf.hwrotation": "270"})
+        result = _detect_touchscreen_orientation(bp)
+        assert result["swap_xy"] is True
+
+    def test_no_rotation(self):
+        bp = self._make_build_prop({"ro.sf.hwrotation": "0"})
+        result = _detect_touchscreen_orientation(bp)
+        assert result["swap_xy"] is False
+        assert result["flip_x"] is False
+        assert result["flip_y"] is False
+
+    def test_rotation_180_flips_both(self):
+        bp = self._make_build_prop({"ro.sf.hwrotation": "180"})
+        result = _detect_touchscreen_orientation(bp)
+        assert result["flip_x"] is True
+        assert result["flip_y"] is True
+
+    def test_no_hwrotation_prop(self):
+        bp = self._make_build_prop({})
+        result = _detect_touchscreen_orientation(bp)
+        assert result["swap_xy"] is False
+        assert result["flip_x"] is False
+        assert result["flip_y"] is False
+
+    def test_invalid_hwrotation(self):
+        bp = self._make_build_prop({"ro.sf.hwrotation": "invalid"})
+        result = _detect_touchscreen_orientation(bp)
+        assert result["swap_xy"] is False
 
 
 class TestBuildPropLocations:
