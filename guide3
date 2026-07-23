@@ -1,0 +1,150 @@
+gdb in TWRP
+
+gdb in TWRP
+
+To make things quick and easy, the TLDR version is to create a script with the below code. After booting up TWRP, from the same terminal where you have done your source ./build/envsetup.sh and lunch commands, run this script:
+Code:
+
+if [ ! -f $OUT/system/bin/gdbserver64 ]; then
+    echo Building gdbserver64
+    make -j8 gdbserver64
+fi
+adb shell stop recovery
+adb push $OUT/system/bin/gdbserver /sbin/
+adb shell chmod 755 /sbin/gdbserver
+adb forward tcp:5039 tcp:5039
+cp $OUT/symbols/recovery/root/sbin/recovery $OUT/symbols/sbin/recovery
+adb push $OUT/symbols/sbin/recovery /sbin/recovery && adb shell chmod 755 /sbin/recovery
+cp $OUT/symbols/system/bin/linker64 $OUT/symbols/sbin/linker64
+cp $OUT/symbols/system/lib64/* $OUT/symbols/sbin
+if [ "$#" = 1 ]; then
+	adb push $OUT/symbols/sbin/$1 /sbin/
+fi
+echo In another terminal run:
+echo gdbclient pid_goes_here
+adb shell gdbserver :5039 /sbin/recovery
+
+Then in another terminal you will need to source ./build/envsetup.sh and lunch again then run gdbclient pid_goes_here
+
+THE LONG VERSION:
+
+This guide was using an Omni 8.1 build tree and the target device was the Razer Phone 2. Since the target device was using aarch64, paths and files may be using “64” in them. If your device is using 32 bit, you can remove 64 from the paths and filenames where needed. You must be able to compile TWRP from source and have some basic knowledge of Linux. Your device must have working adb while in TWRP. The basis for this guide came from the following sites, but reading these sites should not be necessary:
+https://source.android.com/devices/tech/debug/gdb
+https://packmad.github.io/gdb-android/
+https://wladimir-tm4pda.github.io/porting/debugging_gdb.html
+
+Compile your TWRP image as usual with
+Code:
+
+make recoveryimage
+
+and then boot up TWRP. If TWRP is crashing during startup, you may want to
+Code:
+
+adb shell stop recovery
+
+so that the recovery service stops and you end the crash loop. This guide assumes that you want to debug TWRP while TWRP starts up.
+
+The compiled recovery image contains many binaries and libraries that have been stripped of their debugging symbols. The stripped binaries are smaller, but gdb will need access to the unstripped binaries and libraries to assist with debugging. gdb expects to find these binaries and libraries in the same relative path as they are on the device. Unfortunately, in order to get TWRP to work with the linker while in recovery, the build process of TWRP moves binaries and libraries into places that they normally aren’t located (see bootable/recovery/prebuilt/Android.mk if you want a better understanding). You will have to move the unstripped binaries and libraries around a bit to make gdb happy.
+
+First you will need gdbserver64 which you can compile using
+Code:
+
+make gdbserver64
+
+Once gdbserver64 is compiled you must push it to the device with
+Code:
+
+adb push $OUT/system/bin/gdbserver64 /sbin
+
+followed by
+Code:
+
+adb shell chmod 755 /sbin/gdbserver64
+
+You may also need to issue this command, but I’m not sure if it is required:
+Code:
+
+adb forward tcp:5039 tcp:5039
+
+Finally open a new terminal and issue
+Code:
+
+adb shell gdbserver64 :5039 /sbin/recovery
+
+You will need to make note of the number at the end of the first line of the output:
+Code:
+
+Process /sbin/recovery created; pid = [COLOR="Green"]575[/COLOR]
+
+
+The first problem that I ran into was that the device uses ro.hardware of qcom and for some reason, the gdbclient expected the symbols files to be in out/target/product/qcom/symbols. If you run into this issue, you’ll have to manually change ro.hardware to match the codename of the device which may require you to change the kernel cmdline. The other option is to simply create the out/target/product/qcom/symbols directory yourself and
+Code:
+
+cp -R $OUT/symbols $OUT/../qcom/symbols
+
+I suppose a third option would be to modify the gdbclient code to look in the right place for the symbols, but I didn’t attempt this yet.
+
+From here you still need to move more things around. Specifically you will need to move symbols/recovery/root/sbin/recovery to symbols/sbin/recovery. Then for the shared libraries, you’ll need to copy everything in symbols/system/lib64 to symbols/sbin. Finally, you’ll need to copy symbols/system/bin/linker64 into symbols/sbin as well.
+
+In addition, you need to push the unstripped recovery binary to the device so that gdb can match up the symbols with functions and line numbers in the TWRP code:
+Code:
+
+adb push $OUT/symbols/sbin/recovery /sbin/recovery && adb shell chmod 755 /sbin/recovery
+
+
+If you are working on a shared library, you'll also want to push the unstripped library:
+Code:
+
+adb push $OUT/symbols/sbin/libfoo.so /sbin/libfoo.so
+
+
+Now that you have everything where you need it, you can run the gdbclient command from the original terminal where you were issuing your make commands:
+Code:
+
+gdbclient 575
+
+where 575 is the pid from your other terminal. You should see some output like this:
+
+Code:
+
+It looks like gdbserver is already attached to 575 (process is traced), trying to connect to it using local port=5039
+GNU gdb (GDB) 7.11
+Copyright (C) 2016 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.  Type "show copying"
+and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<http://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+<http://www.gnu.org/software/gdb/documentation/>.
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from /home/dees_troy/build/oomni/out/target/product/qcom/symbols/sbin/recovery...done.
+__dl__start () at bionic/linker/arch/arm64/begin.S:32
+32	  mov x0, sp
+(gdb)
+
+
+At which point you are at the (gdb) prompt. You can type
+Code:
+
+continue
+
+and hit enter to have TWRP continue to load. Once TWRP crashes, you can type
+Code:
+
+bt
+
+and hit enter to get the backtrace which should give you a better idea of where things went wrong. Type
+Code:
+
+quit
+
+and hit enter to exit the debugging session.
+
+Hope that helps!
+ 

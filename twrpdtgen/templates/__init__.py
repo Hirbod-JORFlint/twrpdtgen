@@ -15,7 +15,19 @@ jinja_env = Environment(loader=FileSystemLoader(module_path / 'templates'),
                         autoescape=True, trim_blocks=True, lstrip_blocks=True)
 
 def render_template(path: Optional[Path], template_file: str,
-                    out_file: str = '', to_file=True, **kwargs):
+                    out_file: str = '', to_file: bool = True, **kwargs):
+	"""Render a Jinja2 template to a file.
+
+	Args:
+		path: Output directory path. Required when to_file is True.
+		template_file: Name of the template file (without .jinja2 extension).
+		out_file: Custom output filename. Defaults to template_file name.
+		to_file: Whether to write the rendered output to a file.
+		**kwargs: Variables to pass to the Jinja2 template.
+
+	Returns:
+		The rendered template string.
+	"""
 	template = jinja_env.get_template(f"{template_file}.jinja2")
 	rendered_template = template.render(**kwargs)
 
@@ -23,7 +35,7 @@ def render_template(path: Optional[Path], template_file: str,
 		if not out_file:
 			out_file = template_file
 
-		with open(f"{path}/{out_file}", 'w', encoding="utf-8") as out:
-			out.write(rendered_template)
+		output_path = Path(path) / out_file
+		output_path.write_text(rendered_template, encoding="utf-8")
 
 	return rendered_template

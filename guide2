@@ -1,0 +1,115 @@
+So, now, hopefully you've compiled TWRP for your device and gotten it working. Now, you'd like to know how to get TWRP officially supported for your device so that it can be installed automatically with the TWRP app. In order for us to add "official support" for your device we'll need the following:
+1) Device configuration files to compile TWRP from source for your device. This means that you cannot have repacked a recovery.img by hand to get it working. We need to be able to compile it from source so that we can easily release future updates.
+2) We'll build a copy of TWRP and send it to you for validation. Once you've validated that we can build a working image for your device, we'll add it to the official TWRP app.
+
+Note that we won't take credit for your port. You'll still get to post it on XDA to collect all the credit that goes with releasing something new for your device along with having your name listed on our website as the maintainer for the device. Also note that it's not always possible to provide automated installs for all devices.
+
+You can now boot TWRP in an emulator. If you're trying to help develop TWRP, this can be a huge help as you don't have to risk your device and you can do everything directly on your computer.
+jPYg.png
+
+
+Download this set of device configuration files.
+
+Compile a recoveryimage using those device files. In the Android SDK, click on Tools -> Manage AVDs. Click New. Set it up as the following:
+AVD Name: TWRP
+Device: Galaxy Nexus
+Target: ICS or newer though anything will probably work here
+CPU: ARM (armeabi-v7a)
+Check the box for hardware keyboard (your computer's keyboard will work in TWRP)
+Up to you if you want to have the skin with controls present
+Front Camera: None
+Back Camera: None
+RAM: 1024 VM Heap: 64
+Internal Storage: 200
+SD Card: Size: 500 MiB
+
+Then click OK.
+
+Once you have your AVD and your recoveryimage, you can boot TWRP in the emulator by browsing to your android-sdk/tools folder and run this command:
+./emulator -avd TWRP -ramdisk CMFOLDER/out/target/product/twrp/ramdisk-recovery.img
+
+Note that ADB doesn't work right away. About 10 to 15 seconds after TWRP finishes booting, ADB will come online. We start ADB via init.rc so even if TWRP fails to boot due to some kind of code error that you may have made, ADB should still work. Enjoy!
+TWRP and A/B devices:
+
+From a TWRP standpoint, A/B devices aren't a whole lot different from regular devices, but developers seem to be shy about working on these devices. I'm going to try to shed some light on this subject and hopefully this will serve as a guide for porting TWRP to A/B devices.
+
+Firstly, let's understand what is an A/B device and how it's different. A/B devices have duplicates of many partitions on the device. An A/B device has 2x system partitions, 2x boot partitions, 2x vendor partitions, 2x modem / firmware partitions, etc. Only one slot is in use at a time. During early boot, the first stages of the bootloader read some small amount of data called the BCB or Bootloader Control Block and decide whether to boot the A partitions or the B partitions. When an OTA update is available, the data from the active slot is copied from the inactive slot and patched / updated. For example, if you're currently on slot A, your device would download the update and copy the existing system partition from slot A and patch / update it with the new updates into slot B. Once the copying and updating is complete, the BCB is updated and the device reboots using slot B. Next time an update is available, the system partition in slot B is copied to slot A and updated, the BCB gets updated, and we reboot to slot A. When viewing partitions on the device, you'll see something like this:
+
+Code:
+
+/dev/block/bootdevice/by-name/boot_a
+/dev/block/bootdevice/by-name/boot_b
+/dev/block/bootdevice/by-name/system_a
+/dev/block/bootdevice/by-name/system_b
+/dev/block/bootdevice/by-name/userdata
+/dev/block/bootdevice/by-name/vendor_a
+/dev/block/bootdevice/by-name/vendor_b
+
+
+Note the dual boot, system and vendor partitions in the list above, but only one userdata partition.
+
+While there is technically no requirement that I am aware of, all A/B devices shipped thus far have no separate recovery partition. Instead, the boot image contains the recovery in its ramdisk. The important thing is knowing that the boot image now also contains the recovery. For completeness, the system partition is a full root file system. During boot, if the kernel is told to boot to recovery, it will extract the ramdisk in the boot partition. If the kernel is not told by the bootloader to boot to recovery, then the kernel will mount the appropriate system partition (A or B) because the system partition is a full root file system. This means that the system partition on these devices is mounted to / instead of to /system and the system partition contains all of the files that would have normally been in the boot image ramdisk and a /system subfolder.
+
+From a TWRP standpoint, there are 3 things that you have to do for an A/B device. First, you need to set
+Code:
+
+AB_OTA_UPDATER := true
+
+in your BoardConfig.mk. Secondly, for any partition that has an A/B option, you need to add
+Code:
+
+flags=slotselect
+
+in your fstab so something like this:
+Code:
+
+/boot		emmc	/dev/block/bootdevice/by-name/boot	flags=slotselect
+/system		ext4	/dev/block/bootdevice/by-name/system	flags=slotselect
+/system_image	emmc	/dev/block/bootdevice/by-name/system	flags=slotselect
+/vendor		ext4	/dev/block/bootdevice/by-name/vendor	flags=slotselect;display="Vendor";backup=1
+/vendor_image	emmc	/dev/block/bootdevice/by-name/vendor	flags=slotselect
+
+
+Lastly, once you get into TWRP, you will probably want to make sure that bootctl hal-info responds correctly with no errors. Usually the bootctl binary requires a proprietary library or even a couple of services to work correctly. If bootctl does not work correctly, then you will not be able to switch slots within TWRP correctly either.
+
+In addition to setting
+Code:
+
+AB_OTA_UPDATER := true
+
+you may also want to set:
+Code:
+
+BOARD_USES_RECOVERY_AS_BOOT := true
+BOARD_BUILD_SYSTEM_ROOT_IMAGE := true
+
+
+If you set
+Code:
+
+BOARD_USES_RECOVERY_AS_BOOT := true
+
+then make recoveryimage will no longer work and instead you will have to make bootimage. I don't recommend setting either of these flags for TWRP-only build trees. These flags will probably be required for developers building full ROMs for A/B devices.
+
+Installing / Flashing TWRP on A/B devices:
+
+Since all known A/B devices do not have a separate recovery partition, you will eventually have to flash TWRP to the boot partition. On the Pixel 1 and 2, we use fastboot boot to temporarily boot TWRP without flashing TWRP. We are then supplying a zip to allow users to flash TWRP to both slots. You can download one of these zips from our website and update the zip as needed to support your devices. Eventually we will add tools to TWRP to allow users to flash recoveries on these devices without needing to use zips.
+
+Recently, I worked on the Razer Phone. The Razer Phone unfortunately does not support fastboot boot. Instead, users have to determine their currently active boot slot using
+Code:
+
+adb shell getprop ro.boot.slot_suffix
+
+then use
+Code:
+
+fastboot --set-active=_a
+
+to switch slots to the inactive slot. From here, the user can
+Code:
+
+fastboot flash boot twrp.img && fastboot reboot
+
+to get into TWRP. Once in TWRP they can then go to the reboot page and change back to their originally active slot, make a backup, then install TWRP. Using the inactive slot allows users to get a good, unmodified backup of their device before installing TWRP.
+
+Hopefully this helps!

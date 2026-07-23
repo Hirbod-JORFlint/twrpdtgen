@@ -3,6 +3,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
+"""TWRP device tree generator.
+
+Automatically generates a TWRP-compatible device tree from an Android
+recovery or boot image.
+"""
 
 from pathlib import Path
 

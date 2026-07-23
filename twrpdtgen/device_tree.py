@@ -17,7 +17,7 @@ from shutil import copyfile, rmtree
 from stat import S_IRWXU, S_IRGRP, S_IROTH
 from twrpdtgen import __version__ as version
 from twrpdtgen.templates import render_template
-from typing import List
+from typing import List, Optional
 
 BUILDPROP_LOCATIONS = [Path() / "default.prop",
                        Path() / "prop.default",]
@@ -34,15 +34,25 @@ INIT_RC_LOCATIONS = [Path()]
 INIT_RC_LOCATIONS += [Path() / dir / "etc" / "init"
                       for dir in ["system", "vendor"]]
 
-class DeviceTree:
-	"""
-	A class representing a device tree
 
-	It initialize a basic device tree structure
-	and save the location of some important files
+class DeviceTree:
+	"""A class representing a TWRP device tree.
+
+	It initializes a basic device tree structure and saves the
+	location of some important files extracted from a recovery
+	or boot image.
 	"""
 	def __init__(self, image: Path):
-		"""Initialize the device tree class."""
+		"""Initialize the device tree class.
+
+		Args:
+			image: Path to the recovery or boot image.
+
+		Raises:
+			FileNotFoundError: If the image file does not exist.
+			RuntimeError: If the ramdisk, fstab, or other required
+			              components cannot be found in the image.
+		"""
 		self.image = image
 
 		self.current_year = str(datetime.now().year)
@@ -55,7 +65,8 @@ class DeviceTree:
 		self.aik_manager = AIKManager()
 		self.image_info = self.aik_manager.unpackimg(image)
 
-		assert self.image_info.ramdisk, "Ramdisk not found"
+		if not self.image_info.ramdisk:
+			raise RuntimeError("Ramdisk not found in image")
 
 		LOGD("Getting device infos...")
 		self.build_prop = BuildProp()
@@ -73,12 +84,12 @@ class DeviceTree:
 			if not fstab_location.is_file():
 				continue
 
-			LOGD(f"Generating fstab using {fstab} as reference...")
+			LOGD(f"Generating fstab using {fstab_location} as reference...")
 			fstab = Fstab(fstab_location)
 			break
 
 		if fstab is None:
-			raise AssertionError("fstab not found")
+			raise RuntimeError("fstab not found in image")
 
 		self.fstab = fstab
 
@@ -92,6 +103,15 @@ class DeviceTree:
 			                  if init_rc.name.endswith(".rc") and init_rc.name != "init.rc"]
 
 	def dump_to_folder(self, output_path: Path, git: bool = False) -> Path:
+		"""Dump the device tree to a folder.
+
+		Args:
+			output_path: The parent output directory.
+			git: Whether to initialize a git repo and commit.
+
+		Returns:
+			Path to the generated device tree folder.
+		"""
 		device_tree_folder = output_path / self.device_info.manufacturer / self.device_info.codename
 		prebuilt_path = device_tree_folder / "prebuilt"
 		recovery_root_path = device_tree_folder / "recovery" / "root"
@@ -143,17 +163,18 @@ class DeviceTree:
 		LOGD("Creating git repo...")
 
 		git_repo = Repo.init(device_tree_folder)
-		git_config_reader = git_repo.config_reader()
-		git_config_writer = git_repo.config_writer()
 
-		try:
-			git_global_email, git_global_name = git_config_reader.get_value('user', 'email'), git_config_reader.get_value('user', 'name')
-		except Exception:
-			git_global_email, git_global_name = None, None
+		with git_repo.config_reader() as git_config_reader, \
+		     git_repo.config_writer() as git_config_writer:
+			try:
+				git_global_email = git_config_reader.get_value('user', 'email')
+				git_global_name = git_config_reader.get_value('user', 'name')
+			except Exception:
+				git_global_email, git_global_name = None, None
 
-		if git_global_email is None or git_global_name is None:
-			git_config_writer.set_value('user', 'email', 'barezzisebastiano@gmail.com')
-			git_config_writer.set_value('user', 'name', 'Sebastiano Barezzi')
+			if git_global_email is None or git_global_name is None:
+				git_config_writer.set_value('user', 'email', 'barezzisebastiano@gmail.com')
+				git_config_writer.set_value('user', 'name', 'Sebastiano Barezzi')
 
 		git_repo.index.add(["*"])
 		commit_message = self._render_template(None, "commit_message", to_file=False)
@@ -162,6 +183,7 @@ class DeviceTree:
 		return device_tree_folder
 
 	def _render_template(self, *args, comment_prefix: str = "#", **kwargs):
+		"""Render a Jinja2 template to a file or return its content."""
 		return render_template(*args,
 		                       comment_prefix=comment_prefix,
 		                       current_year=self.current_year,
@@ -172,5 +194,14 @@ class DeviceTree:
 		                       **kwargs)
 
 	def cleanup(self):
-		# Cleanup
+		"""Clean up temporary resources used during image extraction."""
 		self.aik_manager.cleanup()
+
+	def __enter__(self):
+		"""Support for use as a context manager."""
+		return self
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		"""Clean up on context manager exit."""
+		self.cleanup()
+		return False

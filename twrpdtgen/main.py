@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import sys
 from argparse import ArgumentParser
 from pathlib import Path
 from sebaubuntu_libs.liblogging import setup_logging
@@ -34,7 +35,16 @@ def main():
 
 	setup_logging(args.debug)
 
-	device_tree = DeviceTree(image=args.image)
-	folder = device_tree.dump_to_folder(args.output, git=args.git)
-
-	print(f"\nDone! You can find the device tree in {folder}")
+	try:
+		with DeviceTree(image=args.image) as device_tree:
+			folder = device_tree.dump_to_folder(args.output, git=args.git)
+			print(f"\nDone! You can find the device tree in {folder}")
+	except FileNotFoundError as e:
+		print(f"Error: {e}", file=sys.stderr)
+		sys.exit(1)
+	except RuntimeError as e:
+		print(f"Error: {e}", file=sys.stderr)
+		sys.exit(1)
+	except Exception as e:
+		print(f"Unexpected error: {e}", file=sys.stderr)
+		sys.exit(1)
