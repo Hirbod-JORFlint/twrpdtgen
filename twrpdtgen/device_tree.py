@@ -34,6 +34,20 @@ INIT_RC_LOCATIONS = [Path()]
 INIT_RC_LOCATIONS += [Path() / dir / "etc" / "init"
                       for dir in ["system", "vendor"]]
 
+MEDIATEK_PLATFORMS = ("mt", "mtk")
+
+
+def _is_mediatek_platform(platform: str) -> bool:
+	"""Check if a platform string indicates a MediaTek chipset.
+
+	Args:
+		platform: The platform identifier (e.g., "mt6735", "MT6765").
+
+	Returns:
+		True if the platform is MediaTek-based.
+	"""
+	return platform.lower().startswith(MEDIATEK_PLATFORMS)
+
 
 class DeviceTree:
 	"""A class representing a TWRP device tree.
@@ -77,6 +91,11 @@ class DeviceTree:
 			self.build_prop.import_props(build_prop)
 
 		self.device_info = DeviceInfo(self.build_prop)
+
+		# Detect MediaTek platform
+		self.is_mediatek = _is_mediatek_platform(self.device_info.platform)
+		if self.is_mediatek:
+			LOGD(f"MediaTek platform detected: {self.device_info.platform}")
 
 		# Generate fstab
 		fstab = None
@@ -156,6 +175,15 @@ class DeviceTree:
 		for init_rc in self.init_rcs:
 			copyfile(init_rc, recovery_root_path / init_rc.name, follow_symlinks=True)
 
+		# Generate MediaTek-specific permissive.sh
+		if self.is_mediatek:
+			LOGD("Generating MediaTek permissive.sh...")
+			sbin_path = recovery_root_path / "sbin"
+			sbin_path.mkdir(parents=True, exist_ok=True)
+			permissive_sh = sbin_path / "permissive.sh"
+			self._render_template(None, "permissive.sh", out_file=str(permissive_sh), to_file=True)
+			permissive_sh.chmod(S_IRWXU | S_IRGRP | S_IROTH)
+
 		if not git:
 			return device_tree_folder
 
@@ -190,6 +218,7 @@ class DeviceTree:
 		                       device_info=self.device_info,
 		                       fstab=self.fstab,
 		                       image_info=self.image_info,
+		                       is_mediatek=self.is_mediatek,
 		                       version=version,
 		                       **kwargs)
 
