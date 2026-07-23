@@ -5,6 +5,7 @@ from pathlib import Path
 from twrpdtgen.device_tree import (
     BUILDPROP_LOCATIONS,
     FSTAB_LOCATIONS,
+    _detect_hardware_mismatch,
     _detect_selinux_permissive,
     _detect_tw_theme,
     _is_mediatek_platform,
@@ -76,6 +77,20 @@ class TestHelperFunctions:
     def test_detect_selinux_permissive_empty(self):
         assert _detect_selinux_permissive("") is False
         assert _detect_selinux_permissive(None) is False
+
+    def test_detect_hardware_mismatch_match(self):
+        assert _detect_hardware_mismatch("sagit", "sagit") is False
+
+    def test_detect_hardware_mismatch_case_insensitive(self):
+        assert _detect_hardware_mismatch("SAGIT", "sagit") is False
+
+    def test_detect_hardware_mismatch_mismatch(self):
+        assert _detect_hardware_mismatch("qcom", "sagit") is True
+
+    def test_detect_hardware_mismatch_empty(self):
+        assert _detect_hardware_mismatch("", "sagit") is False
+        assert _detect_hardware_mismatch("qcom", "") is False
+        assert _detect_hardware_mismatch("", "") is False
 
 
 class TestBuildPropLocations:

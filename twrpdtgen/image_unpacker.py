@@ -46,6 +46,7 @@ CPIO_NEWC_MAGIC_END = b"00000000"
 
 # Compression types for ramdisk (additional)
 RAMDISK_COMPRESSION_BZIP2 = "bzip2"
+RAMDISK_COMPRESSION_ZSTD = "zstd"
 
 
 def _read_uint32(data: bytes, offset: int) -> int:
@@ -70,6 +71,8 @@ def _detect_compression(data: bytes) -> str:
 	if data[:2] == b"\x1f\x8b":
 		return RAMDISK_COMPRESSION_GZIP
 	if data[:4] == b"\x28\xb5\x2f\xfd":
+		return RAMDISK_COMPRESSION_ZSTD
+	if data[:4] == b"\x04\x22\x4d\x18":
 		return RAMDISK_COMPRESSION_LZ4
 	if data[:6] == b"\xfd\x37\x7a\x58\x5a\x00":
 		return RAMDISK_COMPRESSION_LZMA
@@ -112,6 +115,20 @@ def _decompress_ramdisk(data: bytes) -> bytes:
 				raise RuntimeError(
 					"LZ4 decompression requires the lz4 package. "
 					"Install it with: pip install lz4"
+				)
+	elif compression == RAMDISK_COMPRESSION_ZSTD:
+		try:
+			import zstandard as zstd
+			dctx = zstd.ZstdDecompressor()
+			return dctx.decompress(data)
+		except ImportError:
+			try:
+				import zstd as zstd_mod
+				return zstd_mod.decompress(data)
+			except ImportError:
+				raise RuntimeError(
+					"Zstd decompression requires the zstandard package. "
+					"Install it with: pip install zstandard"
 				)
 	elif compression == RAMDISK_COMPRESSION_NONE:
 		return data
@@ -268,6 +285,8 @@ class PurePythonImageUnpacker:
 		LOGD(f"Page size: {page_size}")
 		LOGD(f"Kernel size: {kernel_size}")
 		LOGD(f"Ramdisk size: {ramdisk_size}")
+		LOGD(f"Board name: {board_name}")
+		LOGD(f"Kernel cmdline: {cmdline[:80]}...")
 
 		# Calculate offsets (all sections are page-aligned)
 		kernel_offset = page_size  # First page is the header
@@ -364,8 +383,11 @@ class PurePythonImageUnpacker:
 		# Extract ramdisk
 		if ramdisk_data:
 			LOGD("Extracting ramdisk...")
+			LOGD(f"Ramdisk data size: {len(ramdisk_data)} bytes")
+			LOGD(f"Ramdisk compression: {ramdisk_compression or 'unknown'}")
 			try:
 				decompressed = _decompress_ramdisk(ramdisk_data)
+				LOGD(f"Ramdisk decompressed to {len(decompressed)} bytes")
 				_extract_cpio(decompressed, self._ramdisk_path)
 				LOGD(f"Ramdisk extracted to {self._ramdisk_path}")
 			except Exception as e:
@@ -380,10 +402,13 @@ class PurePythonImageUnpacker:
 			avb_footer = image_data[-64:]
 			if avb_footer[:4] == AVB_FOOTER_MAGIC:
 				sigtype = "AVBv2"
+				LOGD("AVBv2 signature detected (footer magic)")
 			elif avb_footer[:4] == AVB_HASHTREE_MAGIC:
 				sigtype = "AVBv2"
+				LOGD("AVBv2 signature detected (hashtree magic)")
 			elif avb_footer[:4] == AVB_METADATA_MAGIC:
 				sigtype = "AVBv2"
+				LOGD("AVBv2 signature detected (metadata magic)")
 
 		# Check for AVB hashtree in boot image (common on A/B devices)
 		if sigtype == "unknown" and len(image_data) >= 4:
@@ -394,6 +419,7 @@ class PurePythonImageUnpacker:
 					marker = image_data[-check_offset:][:4]
 					if marker in (AVB_FOOTER_MAGIC, AVB_HASHTREE_MAGIC, AVB_METADATA_MAGIC):
 						sigtype = "AVBv2"
+						LOGD(f"AVBv2 signature detected at offset -{check_offset}")
 						break
 
 		# Build origsize string (total image size)

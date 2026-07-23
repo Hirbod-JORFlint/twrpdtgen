@@ -35,9 +35,6 @@ PRODUCT_BUILD_PROP_OVERRIDES += \
 BUILD_FINGERPRINT := {{ device_info.build_fingerprint }}
 {% endif %}
 
-# Device identifier
-PRODUCT_DEVICE := {{ device_info.codename }}
-PRODUCT_NAME := omni_{{ device_info.codename }}
-PRODUCT_MODEL := {{ device_info.model }}
-PRODUCT_MANUFACTURER := {{ device_info.manufacturer }}
+# OTA assert device
+TARGET_OTA_ASSERT_DEVICE := {{ device_info.codename }}
 

@@ -172,6 +172,28 @@ def _detect_selinux_permissive(cmdline: str) -> bool:
 	return "androidboot.selinux=permissive" in cmdline
 
 
+def _detect_hardware_mismatch(board_name: str, codename: str) -> bool:
+	"""Detect if ro.hardware (board_name) doesn't match the device codename.
+
+	From guide3 (GDB debugging): when ro.hardware doesn't match the codename,
+	GDB's gdbclient will look for symbol files in the wrong directory
+	(e.g., out/target/product/qcom/symbols instead of out/target/product/codename/symbols).
+	This can cause debugging failures.
+
+	Args:
+		board_name: The bootloader board name (from ro.product.board or
+		            BOOTLOADER_BOARD_NAME in build.prop).
+		codename: The device codename (from ro.product.device or
+		          ro.build.product in build.prop).
+
+	Returns:
+		True if there's a mismatch between board_name and codename.
+	"""
+	if not board_name or not codename:
+		return False
+	return board_name.lower() != codename.lower()
+
+
 class DeviceTree:
 	"""A class representing a TWRP device tree.
 
@@ -213,7 +235,10 @@ class DeviceTree:
 		if not self.image_info.ramdisk:
 			raise RuntimeError(
 				"Ramdisk not found in image. "
-				"Ensure the image is a valid recovery or boot image."
+				"Ensure the image is a valid recovery or boot image.\n"
+				"Hint: For A/B devices, use the boot image (not recovery). "
+				"The recovery ramdisk is embedded in the boot image.\n"
+				"Hint: For non-A/B devices, use the recovery image from the stock ROM."
 			)
 
 		LOGD("Getting device infos...")
@@ -254,6 +279,22 @@ class DeviceTree:
 		if self.is_selinux_permissive:
 			LOGD("SELinux permissive mode detected in kernel cmdline")
 
+		# Detect ro.hardware / codename mismatch (from guide3: GDB debugging)
+		# When ro.hardware doesn't match codename, GDB looks for symbols
+		# in the wrong directory (e.g., out/target/product/qcom/symbols
+		# instead of out/target/product/<codename>/symbols)
+		self.has_hardware_mismatch = _detect_hardware_mismatch(
+			self.device_info.bootloader_board_name or "",
+			self.device_info.codename or "",
+		)
+		if self.has_hardware_mismatch:
+			LOGD(
+				f"WARNING: ro.hardware '{self.device_info.bootloader_board_name}' "
+				f"does not match codename '{self.device_info.codename}'. "
+				f"This may cause GDB symbol path issues during debugging. "
+				f"See guide3 for details."
+			)
+
 		# Detect TWRP theme based on screen density
 		self.tw_theme = _detect_tw_theme(self.device_info.screen_density)
 
@@ -274,12 +315,19 @@ class DeviceTree:
 			raise RuntimeError(
 				"fstab not found in image. "
 				"Ensure the recovery image contains a recovery.fstab "
-				"in etc/, system/etc/, or vendor/etc/."
+				"in etc/, system/etc/, or vendor/etc/.\n"
+				"Hint: Some devices use fstab in /fstab or /etc/fstab instead. "
+				"The tool also searches these locations.\n"
+				"Hint: For A/B devices, the fstab may be in the vendor ramdisk "
+				"or in the system partition."
 			)
 
 		self.fstab = fstab
 
 		# Search for init rc files
+		# Per guide3: TWRP uses init.recovery.*.rc files for recovery-specific
+		# configuration. Also look for factory_init.*.rc and meta_init.*.rc
+		# which are common in MediaTek devices (from mediatek guide).
 		self.init_rcs: List[Path] = []
 		for init_rc_path in [
 			self.image_info.ramdisk / location
@@ -291,6 +339,14 @@ class DeviceTree:
 			self.init_rcs += [
 				init_rc for init_rc in init_rc_path.iterdir()
 				if init_rc.name.endswith(".rc") and init_rc.name != "init.rc"
+			]
+
+		# Also search vendor/etc/init for additional .rc files
+		vendor_init_path = self.image_info.ramdisk / "vendor" / "etc" / "init"
+		if vendor_init_path.is_dir():
+			self.init_rcs += [
+				init_rc for init_rc in vendor_init_path.iterdir()
+				if init_rc.name.endswith(".rc")
 			]
 
 	def _detect_encryption(self) -> bool:
@@ -434,6 +490,7 @@ class DeviceTree:
 		                       device_info=self.device_info,
 		                       fstab=self.fstab,
 		                       has_encryption=self.has_encryption,
+		                       has_hardware_mismatch=self.has_hardware_mismatch,
 		                       image_info=self.image_info,
 		                       is_mediatek=self.is_mediatek,
 		                       is_qualcomm=self.is_qualcomm,

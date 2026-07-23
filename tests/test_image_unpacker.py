@@ -10,6 +10,9 @@ import pytest
 
 from twrpdtgen.image_unpacker import (
     ANDROID_BOOT_MAGIC,
+    AVB_FOOTER_MAGIC,
+    AVB_HASHTREE_MAGIC,
+    AVB_METADATA_MAGIC,
     CPIO_NEWC_MAGIC,
     CPIO_NEWC_MAGIC_END,
     DTBO_MAGIC,
@@ -42,13 +45,16 @@ class TestHelpers:
         assert _detect_compression(b"\x1f\x8b\x08\x00") == "gzip"
 
     def test_detect_compression_lz4(self):
-        assert _detect_compression(b"\x28\xb5\x2f\xfd") == "lz4"
+        assert _detect_compression(b"\x04\x22\x4d\x18") == "lz4"
 
     def test_detect_compression_lzma(self):
         assert _detect_compression(b"\xfd\x37\x7a\x58\x5a\x00") == "lzma"
 
     def test_detect_compression_bzip2(self):
         assert _detect_compression(b"BZh") == "bzip2"
+
+    def test_detect_compression_zstd(self):
+        assert _detect_compression(b"\x28\xb5\x2f\xfd") == "zstd"
 
     def test_detect_compression_none(self):
         assert _detect_compression(b"\x00\x00\x00\x00") == "none"
@@ -69,6 +75,15 @@ class TestHelpers:
 
     def test_dtbo_magic_constant(self):
         assert DTBO_MAGIC == 0xD7B7AB1E
+
+    def test_avb_footer_magic(self):
+        assert AVB_FOOTER_MAGIC == b"AVBf"
+
+    def test_avb_hashtree_magic(self):
+        assert AVB_HASHTREE_MAGIC == b"AVBh"
+
+    def test_avb_metadata_magic(self):
+        assert AVB_METADATA_MAGIC == b"AVB0"
 
 
 class TestCpioExtraction:
