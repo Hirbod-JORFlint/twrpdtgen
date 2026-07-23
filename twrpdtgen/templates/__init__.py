@@ -11,8 +11,14 @@ from typing import Optional
 
 from twrpdtgen import module_path
 
-jinja_env = Environment(loader=FileSystemLoader(module_path / 'templates'),
-                        autoescape=True, trim_blocks=True, lstrip_blocks=True)
+jinja_env = Environment(
+	loader=FileSystemLoader(module_path / 'templates'),
+	autoescape=True,
+	trim_blocks=True,
+	lstrip_blocks=True,
+	keep_trailing_newline=True,
+)
+
 
 def render_template(path: Optional[Path], template_file: str,
                     out_file: str = '', to_file: bool = True, **kwargs):

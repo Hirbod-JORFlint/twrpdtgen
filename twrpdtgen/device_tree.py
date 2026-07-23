@@ -4,37 +4,59 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+# Standard library
 from datetime import datetime
-from git import Repo
 from os import chmod
 from pathlib import Path
+from shutil import copyfile, rmtree
+from stat import S_IRWXU, S_IRGRP, S_IROTH
+from typing import List, Optional
+
+# Third-party
+from git import Repo
 from sebaubuntu_libs.libaik import AIKManager
 from sebaubuntu_libs.libandroid.device_info import DeviceInfo
 from sebaubuntu_libs.libandroid.fstab import Fstab
 from sebaubuntu_libs.libandroid.props import BuildProp
 from sebaubuntu_libs.liblogging import LOGD
-from shutil import copyfile, rmtree
-from stat import S_IRWXU, S_IRGRP, S_IROTH
+
+# Local
 from twrpdtgen import __version__ as version
 from twrpdtgen.templates import render_template
-from typing import List, Optional
 
-BUILDPROP_LOCATIONS = [Path() / "default.prop",
-                       Path() / "prop.default",]
-BUILDPROP_LOCATIONS += [Path() / dir / "build.prop"
-                        for dir in ["system", "vendor"]]
-BUILDPROP_LOCATIONS += [Path() / dir / "etc" / "build.prop"
-                        for dir in ["system", "vendor"]]
+BUILDPROP_LOCATIONS = [
+	Path() / "default.prop",
+	Path() / "prop.default",
+]
+BUILDPROP_LOCATIONS += [
+	Path() / d / "build.prop"
+	for d in ["system", "vendor"]
+]
+BUILDPROP_LOCATIONS += [
+	Path() / d / "etc" / "build.prop"
+	for d in ["system", "vendor"]
+]
 
-FSTAB_LOCATIONS = [Path() / "etc" / "recovery.fstab"]
-FSTAB_LOCATIONS += [Path() / dir / "etc" / "recovery.fstab"
-                    for dir in ["system", "vendor"]]
+FSTAB_LOCATIONS = [
+	Path() / "etc" / "recovery.fstab",
+]
+FSTAB_LOCATIONS += [
+	Path() / d / "etc" / "recovery.fstab"
+	for d in ["system", "vendor"]
+]
 
-INIT_RC_LOCATIONS = [Path()]
-INIT_RC_LOCATIONS += [Path() / dir / "etc" / "init"
-                      for dir in ["system", "vendor"]]
+INIT_RC_LOCATIONS = [
+	Path(),
+]
+INIT_RC_LOCATIONS += [
+	Path() / d / "etc" / "init"
+	for d in ["system", "vendor"]
+]
 
 MEDIATEK_PLATFORMS = ("mt", "mtk")
+
+# Samsung is known for using Download mode instead of bootloader
+SAMSUNG_BRANDS = ("samsung",)
 
 
 def _is_mediatek_platform(platform: str) -> bool:
@@ -47,6 +69,43 @@ def _is_mediatek_platform(platform: str) -> bool:
 		True if the platform is MediaTek-based.
 	"""
 	return platform.lower().startswith(MEDIATEK_PLATFORMS)
+
+
+def _is_samsung_device(brand: str) -> bool:
+	"""Check if a brand string indicates a Samsung device.
+
+	Args:
+		brand: The brand identifier (e.g., "samsung", "Samsung").
+
+	Returns:
+		True if the device is a Samsung device.
+	"""
+	return brand.lower() in SAMSUNG_BRANDS
+
+
+def _detect_tw_theme(screen_density: Optional[int]) -> str:
+	"""Select the appropriate TWRP theme based on screen density.
+
+	From the TWRP guide: portrait_hdpi for 720x1280 and higher,
+	portrait_mdpi for lower resolutions. hdpi themes are recommended
+	for resolutions of 720x1280 (portrait) or 1280x720 (landscape)
+	and higher.
+
+	Args:
+		screen_density: The device's screen density (DPI), or None.
+
+	Returns:
+		A TW_THEME value (e.g., "portrait_hdpi", "portrait_mdpi").
+	"""
+	if screen_density is None:
+		return "portrait_hdpi"
+
+	# mdpi is ~160dpi, hdpi is ~240dpi, xhdpi is ~320dpi
+	# For most modern devices (>= 720p), hdpi is appropriate
+	if screen_density >= 240:
+		return "portrait_hdpi"
+
+	return "portrait_mdpi"
 
 
 class DeviceTree:
@@ -73,22 +132,30 @@ class DeviceTree:
 
 		# Check if the image exists
 		if not self.image.is_file():
-			raise FileNotFoundError("Specified file doesn't exist")
+			raise FileNotFoundError(
+				f"Specified file doesn't exist: {image}"
+			)
 
 		# Extract the image
 		self.aik_manager = AIKManager()
 		self.image_info = self.aik_manager.unpackimg(image)
 
 		if not self.image_info.ramdisk:
-			raise RuntimeError("Ramdisk not found in image")
+			raise RuntimeError(
+				"Ramdisk not found in image. "
+				"Ensure the image is a valid recovery or boot image."
+			)
 
 		LOGD("Getting device infos...")
 		self.build_prop = BuildProp()
-		for build_prop in [self.image_info.ramdisk / location for location in BUILDPROP_LOCATIONS]:
-			if not build_prop.is_file():
+		for build_prop_path in [
+			self.image_info.ramdisk / location
+			for location in BUILDPROP_LOCATIONS
+		]:
+			if not build_prop_path.is_file():
 				continue
 
-			self.build_prop.import_props(build_prop)
+			self.build_prop.import_props(build_prop_path)
 
 		self.device_info = DeviceInfo(self.build_prop)
 
@@ -97,9 +164,23 @@ class DeviceTree:
 		if self.is_mediatek:
 			LOGD(f"MediaTek platform detected: {self.device_info.platform}")
 
+		# Detect Samsung device (uses Download mode instead of bootloader)
+		self.is_samsung = _is_samsung_device(self.device_info.brand)
+		if self.is_samsung:
+			LOGD(f"Samsung device detected: {self.device_info.brand}")
+
+		# Detect encryption support from build properties
+		self.has_encryption = self._detect_encryption()
+
+		# Detect TWRP theme based on screen density
+		self.tw_theme = _detect_tw_theme(self.device_info.screen_density)
+
 		# Generate fstab
 		fstab = None
-		for fstab_location in [self.image_info.ramdisk / location for location in FSTAB_LOCATIONS]:
+		for fstab_location in [
+			self.image_info.ramdisk / location
+			for location in FSTAB_LOCATIONS
+		]:
 			if not fstab_location.is_file():
 				continue
 
@@ -108,18 +189,57 @@ class DeviceTree:
 			break
 
 		if fstab is None:
-			raise RuntimeError("fstab not found in image")
+			raise RuntimeError(
+				"fstab not found in image. "
+				"Ensure the recovery image contains a recovery.fstab "
+				"in etc/, system/etc/, or vendor/etc/."
+			)
 
 		self.fstab = fstab
 
 		# Search for init rc files
 		self.init_rcs: List[Path] = []
-		for init_rc_path in [self.image_info.ramdisk / location for location in INIT_RC_LOCATIONS]:
+		for init_rc_path in [
+			self.image_info.ramdisk / location
+			for location in INIT_RC_LOCATIONS
+		]:
 			if not init_rc_path.is_dir():
 				continue
 
-			self.init_rcs += [init_rc for init_rc in init_rc_path.iterdir()
-			                  if init_rc.name.endswith(".rc") and init_rc.name != "init.rc"]
+			self.init_rcs += [
+				init_rc for init_rc in init_rc_path.iterdir()
+				if init_rc.name.endswith(".rc") and init_rc.name != "init.rc"
+			]
+
+	def _detect_encryption(self) -> bool:
+		"""Detect if the device supports encryption based on build properties.
+
+		Checks for common encryption-related properties in build.prop:
+		- ro.crypto.state (encrypted/unencrypted)
+		- ro.crypto.type (fileblock)
+		- Various FDE/FBE indicators
+
+		Returns:
+			True if the device appears to support encryption.
+		"""
+		# Check for encryption state
+		crypto_state = self.build_prop.get_prop("ro.crypto.state", "")
+		if crypto_state in ("encrypted", "unencrypted"):
+			return True
+
+		# Check for file-based encryption type
+		crypto_type = self.build_prop.get_prop("ro.crypto.type", "")
+		if crypto_type == "file":
+			return True
+
+		# Check for legacy FDE indicators
+		fde_flag = self.build_prop.get_prop(
+			"ro.vold.forceencryption", ""
+		)
+		if fde_flag:
+			return True
+
+		return False
 
 	def dump_to_folder(self, output_path: Path, git: bool = False) -> Path:
 		"""Dump the device tree to a folder.
@@ -192,20 +312,26 @@ class DeviceTree:
 
 		git_repo = Repo.init(device_tree_folder)
 
-		with git_repo.config_reader() as git_config_reader, \
-		     git_repo.config_writer() as git_config_writer:
+		# Configure git user for this repo only if not already set globally
+		with git_repo.config_writer() as git_config_writer:
 			try:
-				git_global_email = git_config_reader.get_value('user', 'email')
-				git_global_name = git_config_reader.get_value('user', 'name')
+				with git_repo.config_reader() as git_config_reader:
+					git_config_reader.get_value('user', 'email')
+					git_config_reader.get_value('user', 'name')
+					# Both are set globally; no local override needed
 			except Exception:
-				git_global_email, git_global_name = None, None
-
-			if git_global_email is None or git_global_name is None:
-				git_config_writer.set_value('user', 'email', 'barezzisebastiano@gmail.com')
-				git_config_writer.set_value('user', 'name', 'Sebastiano Barezzi')
+				# Global config missing; set local defaults
+				git_config_writer.set_value(
+					'user', 'email', 'barezzisebastiano@gmail.com'
+				)
+				git_config_writer.set_value(
+					'user', 'name', 'Sebastiano Barezzi'
+				)
 
 		git_repo.index.add(["*"])
-		commit_message = self._render_template(None, "commit_message", to_file=False)
+		commit_message = self._render_template(
+			None, "commit_message", to_file=False
+		)
 		git_repo.index.commit(commit_message)
 
 		return device_tree_folder
@@ -217,8 +343,11 @@ class DeviceTree:
 		                       current_year=self.current_year,
 		                       device_info=self.device_info,
 		                       fstab=self.fstab,
+		                       has_encryption=self.has_encryption,
 		                       image_info=self.image_info,
 		                       is_mediatek=self.is_mediatek,
+		                       is_samsung=self.is_samsung,
+		                       tw_theme=self.tw_theme,
 		                       version=version,
 		                       **kwargs)
 
