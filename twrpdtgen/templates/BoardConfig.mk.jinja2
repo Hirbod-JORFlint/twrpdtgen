@@ -171,11 +171,6 @@ BOARD_USES_MMCUTILS := true
 BOARD_SUPPRESS_EMMC_WIPE := true
 {% endif %}
 
-{% if device_info.vendor_build_security_patch %}
-# Security patch level
-VENDOR_SECURITY_PATCH := {{ device_info.vendor_build_security_patch }}
-
-{% endif %}
 {% if image_info.sigtype == "AVBv2" %}
 # Verified Boot
 BOARD_AVB_ENABLE := true

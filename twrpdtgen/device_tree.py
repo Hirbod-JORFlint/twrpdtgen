@@ -309,7 +309,9 @@ class DeviceTree:
 			copyfile(self.image_info.dtbo, prebuilt_path / "dtbo.img")
 
 		LOGD("Copying fstab...")
-		(device_tree_folder / "recovery.fstab").write_text(self.fstab.format(twrp=True))
+		fstab_etc_path = recovery_root_path / "etc"
+		fstab_etc_path.mkdir(parents=True, exist_ok=True)
+		(fstab_etc_path / "recovery.fstab").write_text(self.fstab.format(twrp=True))
 
 		LOGD("Copying init scripts...")
 		for init_rc in self.init_rcs:

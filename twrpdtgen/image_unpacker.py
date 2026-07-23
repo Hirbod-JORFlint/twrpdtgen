@@ -184,8 +184,12 @@ def _extract_cpio(data: bytes, output_dir: Path) -> None:
 			try:
 				target.symlink_to(link_target)
 			except OSError:
-				# On Windows, symlinks may not be supported
-				target.write_text(link_target)
+				# On Windows, symlinks may require admin or Developer Mode.
+				# Preserve symlink info via a .link sidecar file so it can
+				# be reconstructed on Linux.
+				target.write_text(link_target, encoding="utf-8")
+				link_sidecar = output_dir / f"{name}.link"
+				link_sidecar.write_text(link_target, encoding="utf-8")
 		elif file_type == 0o060000:  # Block device
 			pass  # Skip device nodes
 		elif file_type == 0o020000:  # Character device
