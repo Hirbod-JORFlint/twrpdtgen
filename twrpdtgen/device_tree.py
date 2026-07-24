@@ -11,14 +11,14 @@ from pathlib import Path
 from platform import system
 from shutil import copyfile, rmtree
 from stat import S_IRWXU, S_IRGRP, S_IROTH
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 # Third-party
 from git import Repo
 from sebaubuntu_libs.libandroid.device_info import DeviceInfo
 from sebaubuntu_libs.libandroid.fstab import Fstab
 from sebaubuntu_libs.libandroid.props import BuildProp
-from sebaubuntu_libs.liblogging import LOGD
+from sebaubuntu_libs.liblogging import LOGD, LOGI, LOGW
 
 # Local
 from twrpdtgen import __version__ as version
@@ -98,7 +98,11 @@ FSTAB_PARTITION_DISPLAY_NAMES = {
 	# User-facing system partitions
 	"/": "System",
 	"/system": "System",
+	"/system_root": "System Root",
 	"/vendor": "Vendor",
+	"/product": "Product",
+	"/system_ext": "System Extended",
+	"/odm": "ODM",
 	"/cache": "Cache",
 	"/data": "Data",
 	"/cust": "Cust",
@@ -107,6 +111,9 @@ FSTAB_PARTITION_DISPLAY_NAMES = {
 	"/splash2": "Splash2",
 	# Internal/external storage
 	"/sdcard": "Internal Storage",
+	"/internal_sd": "Internal SD",
+	"/internal_sdcard": "Internal SD Card",
+	"/emmc": "eMMC Storage",
 	"/external_sd": "Micro SDcard",
 	"/usb-otg": "USB-OTG",
 	# Modem/Radio
@@ -117,9 +124,16 @@ FSTAB_PARTITION_DISPLAY_NAMES = {
 	"/fsg": "FSG",
 	"/fsc": "FSC",
 	"/mcfg": "MCFG",
+	"/radio": "Radio",
+	"/bluetooth": "Bluetooth",
+	"/wifi": "WiFi",
 	# DSP/Audio
 	"/dsp": "DSP",
 	"/dspbak": "DSP Backup",
+	"/adsp": "ADSP",
+	"/adspbak": "ADSP Backup",
+	"/cdnsp": "CDSP",
+	"/cdnspbak": "CDSP Backup",
 	# Qualcomm Boot
 	"/aboot": "Android Bootloader",
 	"/abootbak": "Android Bootloader Backup",
@@ -127,13 +141,13 @@ FSTAB_PARTITION_DISPLAY_NAMES = {
 	"/sbl1bak": "SBL1 Backup",
 	"/rpm": "RPM",
 	"/rpmbak": "RPM Backup",
+	"/tz": "TrustZone",
+	"/tzbak": "TrustZone Backup",
 	# Qualcomm Display
 	"/splash": "Splash Screen",
 	"/dtbo": "DTBO",
 	"/dtbobak": "DTBO Backup",
 	# Security/TrustZone
-	"/tz": "TrustZone",
-	"/tzbak": "TrustZone Backup",
 	"/cmnlib": "CMN Library",
 	"/cmnlibbak": "CMN Library Backup",
 	"/cmnlib64": "CMN Library 64-bit",
@@ -155,11 +169,16 @@ FSTAB_PARTITION_DISPLAY_NAMES = {
 	# Verified Boot
 	"/vbmeta": "Verified Boot Meta",
 	"/vbmetabak": "Verified Boot Meta Backup",
+	"/vbmeta_system": "VBMeta System",
+	"/vbmeta_vendor": "VBMeta Vendor",
+	"/vbmeta_boot": "VBMeta Boot",
 	# EFS (Samsung/Qualcomm)
 	"/efs": "EFS",
 	"/efs1": "EFS",
 	"/efs2": "EFS 2",
 	"/efs3": "EFS 3",
+	"/pds": "PDS",
+	"/fsg": "FSG",
 	# Debug/Logging
 	"/logdump": "Log Dump",
 	"/minidump": "Mini Dump",
@@ -178,15 +197,26 @@ FSTAB_PARTITION_DISPLAY_NAMES = {
 	"/bk3": "Backup 3",
 	"/bk4": "Backup 4",
 	"/DDR": "DDR",
+	# GPU/graphics
+	"/gpu": "GPU",
+	"/pvr": "PowerVR",
+	# Other partitions
+	"/boot": "Boot",
+	"/recovery": "Recovery",
+	"/metadata": "Metadata",
+	"/super": "Super",
+	"/userdata": "Userdata",
 }
 
 # Partitions that should be backed up by default (from guide1: backup= flag)
 # Only user-facing partitions that users would want to restore
 FSTAB_BACKUP_PARTITIONS = {
-	"/system", "/vendor", "/cache", "/data",
-	"/efs", "/efs1", "/efs2", "/efs3",
+	"/system", "/system_root", "/vendor", "/product", "/system_ext", "/odm",
+	"/cache", "/data",
+	"/efs", "/efs1", "/efs2", "/efs3", "/pds",
 	"/preload", "/cust", "/oeminfo",
-	"/modem",
+	"/modem", "/radio", "/bluetooth", "/wifi",
+	"/boot", "/recovery",
 }
 
 # Removable storage partitions (from guide1: removable + storage + wipeingui)
@@ -196,7 +226,7 @@ FSTAB_REMOVABLE_STORAGE = ("/external_sd", "/usb-otg")
 FSTAB_INTERNAL_STORAGE = ("/sdcard", "/internal_sd", "/internal_sdcard", "/emmc")
 
 
-def _generate_twrp_fstab(fstab, has_encryption: bool = False) -> str:
+def _generate_twrp_fstab(fstab: Fstab, has_encryption: bool = False) -> str:
 	"""Generate an enhanced TWRP recovery.fstab with proper flags from guide1.
 
 	Enhances the basic fstab output with TWRP-specific flags:
@@ -214,6 +244,7 @@ def _generate_twrp_fstab(fstab, has_encryption: bool = False) -> str:
 	Returns:
 		A formatted fstab string with TWRP flags.
 	"""
+	LOGD(f"Generating TWRP fstab with {len(fstab.entries)} entries, encryption={has_encryption}")
 	lines = []
 
 	# Calculate column widths for alignment
@@ -238,6 +269,7 @@ def _generate_twrp_fstab(fstab, has_encryption: bool = False) -> str:
 		# Add backup flag for backupable partitions
 		if entry.mount_point in FSTAB_BACKUP_PARTITIONS:
 			twrp_flags.append("backup=1")
+			LOGD(f"Added backup flag for partition: {entry.mount_point}")
 
 		# Add storage flag for internal storage
 		if entry.mount_point in FSTAB_INTERNAL_STORAGE:
@@ -260,6 +292,15 @@ def _generate_twrp_fstab(fstab, has_encryption: bool = False) -> str:
 		length_flag = ""
 		if entry.mount_point == "/data" and has_encryption:
 			length_flag = " length=-16384"
+			LOGD("Added encryption length flag for /data partition")
+		
+		# Add canbewipe flag for partitions that can be wiped
+		if entry.mount_point in ["/cache", "/data", "/system", "/vendor"]:
+			twrp_flags.append("canbewipe")
+		
+		# Add ignore flags for special partitions that shouldn't be touched
+		if entry.mount_point in ["/misc", "/metadata"]:
+			twrp_flags.append("ignore")
 
 		# Pad columns for alignment
 		mount_pad = " " * (mount_point_width - len(entry.mount_point))
@@ -277,7 +318,20 @@ def _generate_twrp_fstab(fstab, has_encryption: bool = False) -> str:
 	return "\n".join(lines)
 
 
-def _detect_emulated_storage(fstab) -> bool:
+def _detect_emulated_storage(fstab: Fstab) -> bool:
+	"""Detect if device uses emulated storage (SD card on /data).
+
+	Devices with emulated storage store the SD card at /data/media instead
+	of a separate partition. This is detected by checking for known emulated
+	storage mount points or the noemulatedsd flag.
+
+	Args:
+		fstab: A Fstab object with parsed fstab entries.
+
+	Returns:
+		True if device uses emulated storage, False otherwise.
+	"""
+	LOGD("Detecting emulated storage")
 	"""Detect if the device uses emulated storage on /data/media.
 
 	From guide1: RECOVERY_SDCARD_ON_DATA enables proper handling of
@@ -304,7 +358,18 @@ def _detect_emulated_storage(fstab) -> bool:
 	return False
 
 
-def _detect_has_sdcard(fstab) -> bool:
+def _detect_has_sdcard(fstab: Fstab) -> bool:
+	"""Detect if device has an external SD card slot.
+
+	Checks for removable storage mount points like /external_sd or /usb-otg
+	that indicate the presence of external storage.
+
+	Args:
+		fstab: A Fstab object with parsed fstab entries.
+
+	Returns:
+		True if device has external SD card support, False otherwise.
+	"""
 	"""Detect if the fstab contains an SD card or external storage entry.
 
 	From guide1: sdcard/external_sd/usb-otg entries indicate physical
@@ -324,7 +389,16 @@ def _detect_has_sdcard(fstab) -> bool:
 	return False
 
 
-def _detect_userdata_fs_type(fstab) -> str:
+def _detect_userdata_fs_type(fstab: Fstab) -> str:
+	"""Detect the filesystem type of the /data partition.
+
+	Args:
+		fstab: A Fstab object with parsed fstab entries.
+
+	Returns:
+		Filesystem type string (e.g., "ext4", "f2fs"). Defaults to "ext4".
+	"""
+	LOGD("Detecting /data filesystem type")
 	"""Detect the filesystem type for /data from the fstab.
 
 	From guide1: the fstab specifies the filesystem for each partition.
@@ -344,7 +418,22 @@ def _detect_userdata_fs_type(fstab) -> str:
 	return "ext4"  # Default fallback
 
 
-def _detect_touchscreen_orientation(build_prop):
+def _detect_touchscreen_orientation(build_prop: BuildProp) -> Dict[str, bool]:
+	"""Detect touchscreen orientation settings from build properties.
+
+	Analyzes build properties to determine if touchscreen coordinates need
+	to be swapped or flipped for proper touch input handling.
+
+	Args:
+		build_prop: A BuildProp object with device properties.
+
+	Returns:
+		Dictionary with orientation settings:
+		- swap_xy: Whether to swap X and Y coordinates
+		- flip_x: Whether to flip X coordinates
+		- flip_y: Whether to flip Y coordinates
+	"""
+	LOGD("Detecting touchscreen orientation")
 	"""Detect touch screen orientation flags from build properties.
 
 	From guide1: RECOVERY_TOUCHSCREEN_SWAP_XY, RECOVERY_TOUCHSCREEN_FLIP_X,
@@ -385,6 +474,15 @@ def _detect_touchscreen_orientation(build_prop):
 
 
 def _is_mediatek_platform(platform: str) -> bool:
+	"""Check if the platform is a MediaTek chipset.
+
+	Args:
+		platform: Platform string from device info.
+
+	Returns:
+		True if platform is MediaTek (starts with 'mt' or 'mtk'), False otherwise.
+	"""
+	LOGD(f"Checking if platform '{platform}' is MediaTek")
 	"""Check if a platform string indicates a MediaTek chipset.
 
 	Args:
@@ -397,6 +495,17 @@ def _is_mediatek_platform(platform: str) -> bool:
 
 
 def _is_samsung_device(brand: str) -> bool:
+	"""Check if the device brand is Samsung.
+
+	Samsung devices use Download mode instead of bootloader mode,
+	which affects recovery key combinations.
+
+	Args:
+		brand: Device brand string.
+
+	Returns:
+		True if brand is Samsung (case-insensitive), False otherwise.
+	"""
 	"""Check if a brand string indicates a Samsung device.
 
 	Args:
@@ -409,6 +518,14 @@ def _is_samsung_device(brand: str) -> bool:
 
 
 def _detect_tw_theme(screen_density: Optional[int]) -> str:
+	"""Detect appropriate TWRP theme based on screen density.
+
+	Args:
+		screen_density: Screen density in DPI, or None if unknown.
+
+	Returns:
+		Theme string ("portrait_hdpi" for high DPI, "portrait_mdpi" otherwise).
+	"""
 	"""Select the appropriate TWRP theme based on screen density.
 
 	From the TWRP guide: portrait_hdpi for 720x1280 and higher,
@@ -440,6 +557,14 @@ def _detect_tw_theme(screen_density: Optional[int]) -> str:
 
 
 def _is_qualcomm_platform(platform: str) -> bool:
+	"""Check if the platform is a Qualcomm chipset.
+
+	Args:
+		platform: Platform string from device info.
+
+	Returns:
+		True if platform is Qualcomm (msm, sdm, sm, qcom), False otherwise.
+	"""
 	"""Check if a platform string indicates a Qualcomm chipset.
 
 	Args:
@@ -452,6 +577,14 @@ def _is_qualcomm_platform(platform: str) -> bool:
 
 
 def _detect_selinux_permissive(cmdline: str) -> bool:
+	"""Detect if SELinux is set to permissive mode in kernel cmdline.
+
+	Args:
+		cmdline: Kernel command line string.
+
+	Returns:
+		True if androidboot.selinux=permissive is present, False otherwise.
+	"""
 	"""Detect if SELinux is set to permissive in the kernel command line.
 
 	From the MediaTek guide: permissive mode is often set for MediaTek
@@ -469,6 +602,19 @@ def _detect_selinux_permissive(cmdline: str) -> bool:
 
 
 def _detect_hardware_mismatch(board_name: str, codename: str) -> bool:
+	"""Detect if there's a mismatch between board name and device codename.
+
+	A mismatch may indicate that the device tree needs special handling
+	or that the device uses a different board name than expected.
+
+	Args:
+		board_name: Board name from build props.
+		codename: Device codename.
+
+	Returns:
+		True if board name and codename don't match, False otherwise.
+	"""
+	LOGD(f"Checking hardware mismatch: board='{board_name}', codename='{codename}'")
 	"""Detect if ro.hardware (board_name) doesn't match the device codename.
 
 	From guide3 (GDB debugging): when ro.hardware doesn't match the codename,

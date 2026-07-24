@@ -17,7 +17,7 @@ import struct
 from pathlib import Path
 from shutil import rmtree
 from tempfile import TemporaryDirectory
-from typing import Optional
+from typing import Optional, Tuple
 
 from sebaubuntu_libs.libaik import AIKImageInfo
 from sebaubuntu_libs.liblogging import LOGD, LOGI
@@ -50,12 +50,28 @@ RAMDISK_COMPRESSION_ZSTD = "zstd"
 
 
 def _read_uint32(data: bytes, offset: int) -> int:
-	"""Read a little-endian uint32 from bytes."""
+	"""Read a little-endian uint32 from bytes.
+
+	Args:
+		data: Byte array to read from.
+		offset: Starting offset in bytes.
+
+	Returns:
+		32-bit unsigned integer value.
+	"""
 	return struct.unpack_from("<I", data, offset)[0]
 
 
 def _round_up(value: int, alignment: int) -> int:
-	"""Round up value to the next multiple of alignment."""
+	"""Round up value to the next multiple of alignment.
+
+	Args:
+		value: Value to round up.
+		alignment: Alignment boundary (must be power of 2).
+
+	Returns:
+		Rounded up value.
+	"""
 	return (value + alignment - 1) & ~(alignment - 1)
 
 
@@ -68,6 +84,7 @@ def _detect_compression(data: bytes) -> str:
 	Returns:
 		Compression type string.
 	"""
+	LOGD("Detecting compression type from magic bytes")
 	if data[:2] == b"\x1f\x8b":
 		return RAMDISK_COMPRESSION_GZIP
 	if data[:4] == b"\x28\xb5\x2f\xfd":
@@ -457,7 +474,18 @@ class PurePythonImageUnpacker:
 			tags_offset=addr_to_hex(tags_addr),
 		)
 
-	def cleanup(self):
+	def cleanup(self) -> None:
+		"""Clean up temporary directory and extracted files."""
+		self._tempdir.cleanup()
+
+	def __enter__(self):
+		"""Context manager entry."""
+		return self
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		"""Context manager exit with cleanup."""
+		self.cleanup()
+		return False
 		"""Clean up temporary files."""
 		try:
 			rmtree(self._path, ignore_errors=True)
