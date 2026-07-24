@@ -74,6 +74,22 @@ class TestHelperFunctions:
         assert _detect_tw_theme(239) == "portrait_mdpi"
         assert _detect_tw_theme(240) == "portrait_hdpi"
 
+    def test_detect_tw_theme_landscape_hdpi(self):
+        assert _detect_tw_theme(320, is_landscape=True) == "landscape_hdpi"
+        assert _detect_tw_theme(480, is_landscape=True) == "landscape_hdpi"
+
+    def test_detect_tw_theme_landscape_mdpi(self):
+        assert _detect_tw_theme(160, is_landscape=True) == "landscape_mdpi"
+        assert _detect_tw_theme(120, is_landscape=True) == "landscape_mdpi"
+
+    def test_detect_tw_theme_landscape_none(self):
+        assert _detect_tw_theme(None, is_landscape=True) == "landscape_hdpi"
+
+    def test_detect_tw_theme_watch(self):
+        assert _detect_tw_theme(320, is_watch=True) == "watch_mdpi"
+        assert _detect_tw_theme(160, is_watch=True) == "watch_mdpi"
+        assert _detect_tw_theme(None, is_watch=True) == "watch_mdpi"
+
     def test_detect_selinux_permissive_true(self):
         cmdline = "console=ttyMSM0,115200n8 androidboot.selinux=permissive"
         assert _detect_selinux_permissive(cmdline) is True
@@ -337,13 +353,13 @@ class TestGenerateTwrpFstab:
         result = _generate_twrp_fstab(fstab)
         assert "backup=1" in result
 
-    def test_no_backup_flag_on_boot(self):
+    def test_backup_flag_on_boot(self):
         fstab = self._make_fstab([
             self._make_fstab_entry("/boot", "emmc", "/dev/block/boot"),
         ])
         result = _generate_twrp_fstab(fstab)
-        # /boot should not have backup=1 (not in FSTAB_BACKUP_PARTITIONS)
-        assert "backup=1" not in result
+        # /boot should have backup=1 (it's in FSTAB_BACKUP_PARTITIONS)
+        assert "backup=1" in result
 
     def test_storage_flag_on_sdcard(self):
         fstab = self._make_fstab([
@@ -417,3 +433,52 @@ class TestGenerateTwrpFstab:
         ])
         result = _generate_twrp_fstab(fstab)
         assert result.endswith("\n")
+
+    def test_wipeduringfactoryreset_on_data(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "wipeduringfactoryreset" in result
+
+    def test_wipeduringfactoryreset_on_cache(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/cache", "ext4", "/dev/block/cache"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "wipeduringfactoryreset" in result
+
+    def test_no_wipeduringfactoryreset_on_system(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/system", "ext4", "/dev/block/system"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "wipeduringfactoryreset" not in result
+
+    def test_settingsstorage_on_data(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/data", "ext4", "/dev/block/userdata"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "settingsstorage" in result
+
+    def test_no_settingsstorage_on_system(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/system", "ext4", "/dev/block/system"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "settingsstorage" not in result
+
+    def test_canbewipe_on_cust(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/cust", "ext4", "/dev/block/cust"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "canbewipe" in result
+
+    def test_canbewipe_on_preload(self):
+        fstab = self._make_fstab([
+            self._make_fstab_entry("/preload", "ext4", "/dev/block/preload"),
+        ])
+        result = _generate_twrp_fstab(fstab)
+        assert "canbewipe" in result

@@ -11,13 +11,11 @@ and decompresses and extracts ramdisk cpio archives.
 """
 
 import gzip
-import io
 import lzma
 import struct
 from pathlib import Path
-from shutil import rmtree
 from tempfile import TemporaryDirectory
-from typing import Optional, Tuple
+from typing import Optional
 
 from sebaubuntu_libs.libaik import AIKImageInfo
 from sebaubuntu_libs.liblogging import LOGD, LOGI
@@ -486,8 +484,3 @@ class PurePythonImageUnpacker:
 		"""Context manager exit with cleanup."""
 		self.cleanup()
 		return False
-		"""Clean up temporary files."""
-		try:
-			rmtree(self._path, ignore_errors=True)
-		except Exception:
-			pass

@@ -225,6 +225,12 @@ FSTAB_REMOVABLE_STORAGE = ("/external_sd", "/usb-otg")
 # Internal storage partitions (from guide1: storage flag)
 FSTAB_INTERNAL_STORAGE = ("/sdcard", "/internal_sd", "/internal_sdcard", "/emmc")
 
+# Partitions that should be wiped during factory reset (from guide1: wipeduringfactoryreset)
+FSTAB_FACTORY_RESET_PARTITIONS = ("/data", "/cache")
+
+# Settings storage partition (from guide1: settingsstorage - only one should have this)
+FSTAB_SETTINGS_STORAGE = ("/data",)
+
 
 def _generate_twrp_fstab(fstab: Fstab, has_encryption: bool = False) -> str:
 	"""Generate an enhanced TWRP recovery.fstab with proper flags from guide1.
@@ -235,6 +241,8 @@ def _generate_twrp_fstab(fstab: Fstab, has_encryption: bool = False) -> str:
 	- storage  : Whether the partition can be used as storage (guide1: storage)
 	- removable : Whether the partition may not always be present (guide1: removable)
 	- wipeingui : Whether the partition shows in advanced wipe menu (guide1: wipeingui)
+	- wipeduringfactoryreset : Partition wiped during factory reset (guide1: wipeduringfactoryreset)
+	- settingsstorage : Partition used for TWRP settings (guide1: settingsstorage)
 	- length=  : Reserved space for encryption key (guide1: length=)
 
 	Args:
@@ -293,11 +301,21 @@ def _generate_twrp_fstab(fstab: Fstab, has_encryption: bool = False) -> str:
 		if entry.mount_point == "/data" and has_encryption:
 			length_flag = " length=-16384"
 			LOGD("Added encryption length flag for /data partition")
-		
+
+		# Add wipeduringfactoryreset for partitions wiped during factory reset
+		# From guide1: these partitions are wiped during factory reset
+		if entry.mount_point in FSTAB_FACTORY_RESET_PARTITIONS:
+			twrp_flags.append("wipeduringfactoryreset")
+
+		# Add settingsstorage flag for the settings storage partition
+		# From guide1: only one partition should be set as settings storage
+		if entry.mount_point in FSTAB_SETTINGS_STORAGE:
+			twrp_flags.append("settingsstorage")
+
 		# Add canbewipe flag for partitions that can be wiped
-		if entry.mount_point in ["/cache", "/data", "/system", "/vendor"]:
+		if entry.mount_point in ["/cache", "/data", "/system", "/vendor", "/cust", "/preload"]:
 			twrp_flags.append("canbewipe")
-		
+
 		# Add ignore flags for special partitions that shouldn't be touched
 		if entry.mount_point in ["/misc", "/metadata"]:
 			twrp_flags.append("ignore")
@@ -321,19 +339,6 @@ def _generate_twrp_fstab(fstab: Fstab, has_encryption: bool = False) -> str:
 def _detect_emulated_storage(fstab: Fstab) -> bool:
 	"""Detect if device uses emulated storage (SD card on /data).
 
-	Devices with emulated storage store the SD card at /data/media instead
-	of a separate partition. This is detected by checking for known emulated
-	storage mount points or the noemulatedsd flag.
-
-	Args:
-		fstab: A Fstab object with parsed fstab entries.
-
-	Returns:
-		True if device uses emulated storage, False otherwise.
-	"""
-	LOGD("Detecting emulated storage")
-	"""Detect if the device uses emulated storage on /data/media.
-
 	From guide1: RECOVERY_SDCARD_ON_DATA enables proper handling of
 	/data/media on devices that have this folder for storage. If no
 	references to /sdcard, /internal_sd, /internal_sdcard, or /emmc
@@ -343,8 +348,9 @@ def _detect_emulated_storage(fstab: Fstab) -> bool:
 		fstab: A Fstab object with parsed fstab entries.
 
 	Returns:
-		True if emulated storage is detected.
+		True if device uses emulated storage, False otherwise.
 	"""
+	LOGD("Detecting emulated storage")
 	for entry in fstab.entries:
 		if entry.mount_point in EMULATED_STORAGE_MOUNT_POINTS:
 			return True
@@ -361,25 +367,15 @@ def _detect_emulated_storage(fstab: Fstab) -> bool:
 def _detect_has_sdcard(fstab: Fstab) -> bool:
 	"""Detect if device has an external SD card slot.
 
-	Checks for removable storage mount points like /external_sd or /usb-otg
-	that indicate the presence of external storage.
+	From guide1: sdcard/external_sd/usb-otg entries indicate physical
+	storage is available. Checks for removable storage mount points
+	like /external_sd or /usb-otg.
 
 	Args:
 		fstab: A Fstab object with parsed fstab entries.
 
 	Returns:
 		True if device has external SD card support, False otherwise.
-	"""
-	"""Detect if the fstab contains an SD card or external storage entry.
-
-	From guide1: sdcard/external_sd/usb-otg entries indicate physical
-	storage is available.
-
-	Args:
-		fstab: A Fstab object with parsed fstab entries.
-
-	Returns:
-		True if an SD card or external storage entry is found.
 	"""
 	for entry in fstab.entries:
 		if entry.mount_point in ("/external_sd", "/usb-otg"):
@@ -392,15 +388,6 @@ def _detect_has_sdcard(fstab: Fstab) -> bool:
 def _detect_userdata_fs_type(fstab: Fstab) -> str:
 	"""Detect the filesystem type of the /data partition.
 
-	Args:
-		fstab: A Fstab object with parsed fstab entries.
-
-	Returns:
-		Filesystem type string (e.g., "ext4", "f2fs"). Defaults to "ext4".
-	"""
-	LOGD("Detecting /data filesystem type")
-	"""Detect the filesystem type for /data from the fstab.
-
 	From guide1: the fstab specifies the filesystem for each partition.
 	We extract the /data filesystem type instead of hardcoding it.
 
@@ -408,8 +395,9 @@ def _detect_userdata_fs_type(fstab: Fstab) -> str:
 		fstab: A Fstab object with parsed fstab entries.
 
 	Returns:
-		Filesystem type string (e.g., "ext4", "f2fs").
+		Filesystem type string (e.g., "ext4", "f2fs"). Defaults to "ext4".
 	"""
+	LOGD("Detecting /data filesystem type")
 	for entry in fstab.entries:
 		if entry.mount_point == "/data":
 			fs_type = entry.fs_type.lower()
@@ -421,6 +409,8 @@ def _detect_userdata_fs_type(fstab: Fstab) -> str:
 def _detect_touchscreen_orientation(build_prop: BuildProp) -> Dict[str, bool]:
 	"""Detect touchscreen orientation settings from build properties.
 
+	From guide1: RECOVERY_TOUCHSCREEN_SWAP_XY, RECOVERY_TOUCHSCREEN_FLIP_X,
+	RECOVERY_TOUCHSCREEN_FLIP_Y can fix touchscreen rotation issues.
 	Analyzes build properties to determine if touchscreen coordinates need
 	to be swapped or flipped for proper touch input handling.
 
@@ -434,22 +424,6 @@ def _detect_touchscreen_orientation(build_prop: BuildProp) -> Dict[str, bool]:
 		- flip_y: Whether to flip Y coordinates
 	"""
 	LOGD("Detecting touchscreen orientation")
-	"""Detect touch screen orientation flags from build properties.
-
-	From guide1: RECOVERY_TOUCHSCREEN_SWAP_XY, RECOVERY_TOUCHSCREEN_FLIP_X,
-	RECOVERY_TOUCHSCREEN_FLIP_Y can fix touchscreen rotation issues.
-
-	Args:
-		build_prop: A BuildProp object with parsed properties.
-
-	Returns:
-		A dict with orientation flags:
-		{
-			"swap_xy": bool,
-			"flip_x": bool,
-			"flip_y": bool,
-		}
-	"""
 	result = {"swap_xy": False, "flip_x": False, "flip_y": False}
 
 	# Check ro.sf.hwrotation for screen rotation
@@ -483,14 +457,6 @@ def _is_mediatek_platform(platform: str) -> bool:
 		True if platform is MediaTek (starts with 'mt' or 'mtk'), False otherwise.
 	"""
 	LOGD(f"Checking if platform '{platform}' is MediaTek")
-	"""Check if a platform string indicates a MediaTek chipset.
-
-	Args:
-		platform: The platform identifier (e.g., "mt6735", "MT6765").
-
-	Returns:
-		True if the platform is MediaTek-based.
-	"""
 	return platform.lower().startswith(MEDIATEK_PLATFORMS)
 
 
@@ -498,7 +464,7 @@ def _is_samsung_device(brand: str) -> bool:
 	"""Check if the device brand is Samsung.
 
 	Samsung devices use Download mode instead of bootloader mode,
-	which affects recovery key combinations.
+	which affects recovery key combinations (guide1: TW_NO_REBOOT_BOOTLOADER).
 
 	Args:
 		brand: Device brand string.
@@ -506,54 +472,51 @@ def _is_samsung_device(brand: str) -> bool:
 	Returns:
 		True if brand is Samsung (case-insensitive), False otherwise.
 	"""
-	"""Check if a brand string indicates a Samsung device.
-
-	Args:
-		brand: The brand identifier (e.g., "samsung", "Samsung").
-
-	Returns:
-		True if the device is a Samsung device.
-	"""
 	return brand.lower() in SAMSUNG_BRANDS
 
 
-def _detect_tw_theme(screen_density: Optional[int]) -> str:
-	"""Detect appropriate TWRP theme based on screen density.
+def _detect_tw_theme(
+	screen_density: Optional[int],
+	is_landscape: bool = False,
+	is_watch: bool = False,
+) -> str:
+	"""Detect appropriate TWRP theme based on screen density and orientation.
+
+	From guide1: TWRP supports 5 themes:
+	- portrait_hdpi: for portrait devices with >= 720x1280 resolution
+	- portrait_mdpi: for portrait devices with lower resolution
+	- landscape_hdpi: for landscape devices with >= 1280x720 resolution
+	- landscape_mdpi: for landscape devices with lower resolution
+	- watch_mdpi: for round/watch devices (240x240, 280x280, 320x320)
+
+	TWRP uses scaling to stretch any theme to fit the screen resolution.
 
 	Args:
 		screen_density: Screen density in DPI, or None if unknown.
+		is_landscape: Whether the device has a landscape orientation.
+		is_watch: Whether the device is a round/watch device.
 
 	Returns:
-		Theme string ("portrait_hdpi" for high DPI, "portrait_mdpi" otherwise).
+		Theme string (e.g., "portrait_hdpi", "landscape_mdpi", "watch_mdpi").
 	"""
-	"""Select the appropriate TWRP theme based on screen density.
+	if is_watch:
+		return "watch_mdpi"
 
-	From the TWRP guide: portrait_hdpi for 720x1280 and higher,
-	portrait_mdpi for lower resolutions. hdpi themes are recommended
-	for resolutions of 720x1280 (portrait) or 1280x720 (landscape)
-	and higher.
-
-	Args:
-		screen_density: The device's screen density (DPI), or None.
-
-		Returns:
-		A TW_THEME value (e.g., "portrait_hdpi", "portrait_mdpi").
-	"""
 	if screen_density is None:
-		return "portrait_hdpi"
+		return "portrait_hdpi" if not is_landscape else "landscape_hdpi"
 
 	# Ensure we have a numeric value for comparison
 	try:
 		density = int(screen_density)
 	except (ValueError, TypeError):
-		return "portrait_hdpi"
+		return "portrait_hdpi" if not is_landscape else "landscape_hdpi"
 
 	# mdpi is ~160dpi, hdpi is ~240dpi, xhdpi is ~320dpi
 	# For most modern devices (>= 720p), hdpi is appropriate
 	if density >= 240:
-		return "portrait_hdpi"
+		return "portrait_hdpi" if not is_landscape else "landscape_hdpi"
 
-	return "portrait_mdpi"
+	return "portrait_mdpi" if not is_landscape else "landscape_mdpi"
 
 
 def _is_qualcomm_platform(platform: str) -> bool:
@@ -565,36 +528,20 @@ def _is_qualcomm_platform(platform: str) -> bool:
 	Returns:
 		True if platform is Qualcomm (msm, sdm, sm, qcom), False otherwise.
 	"""
-	"""Check if a platform string indicates a Qualcomm chipset.
-
-	Args:
-		platform: The platform identifier (e.g., "msm8937", "SDM845").
-
-	Returns:
-		True if the platform is Qualcomm-based.
-	"""
 	return platform.lower().startswith(QUALCOMM_PLATFORMS)
 
 
 def _detect_selinux_permissive(cmdline: str) -> bool:
 	"""Detect if SELinux is set to permissive mode in kernel cmdline.
 
+	From guide1/mediatek: permissive mode is often set for MediaTek
+	devices via `androidboot.selinux=permissive` in the kernel cmdline.
+
 	Args:
 		cmdline: Kernel command line string.
 
 	Returns:
 		True if androidboot.selinux=permissive is present, False otherwise.
-	"""
-	"""Detect if SELinux is set to permissive in the kernel command line.
-
-	From the MediaTek guide: permissive mode is often set for MediaTek
-	devices via `androidboot.selinux=permissive` in the kernel cmdline.
-
-	Args:
-		cmdline: The kernel command line string.
-
-	Returns:
-		True if SELinux permissive mode is detected.
 	"""
 	if not cmdline:
 		return False
@@ -604,6 +551,9 @@ def _detect_selinux_permissive(cmdline: str) -> bool:
 def _detect_hardware_mismatch(board_name: str, codename: str) -> bool:
 	"""Detect if there's a mismatch between board name and device codename.
 
+	From guide3 (GDB debugging): when ro.hardware doesn't match the codename,
+	GDB's gdbclient will look for symbol files in the wrong directory
+	(e.g., out/target/product/qcom/symbols instead of out/target/product/codename/symbols).
 	A mismatch may indicate that the device tree needs special handling
 	or that the device uses a different board name than expected.
 
@@ -615,22 +565,6 @@ def _detect_hardware_mismatch(board_name: str, codename: str) -> bool:
 		True if board name and codename don't match, False otherwise.
 	"""
 	LOGD(f"Checking hardware mismatch: board='{board_name}', codename='{codename}'")
-	"""Detect if ro.hardware (board_name) doesn't match the device codename.
-
-	From guide3 (GDB debugging): when ro.hardware doesn't match the codename,
-	GDB's gdbclient will look for symbol files in the wrong directory
-	(e.g., out/target/product/qcom/symbols instead of out/target/product/codename/symbols).
-	This can cause debugging failures.
-
-	Args:
-		board_name: The bootloader board name (from ro.product.board or
-		            BOOTLOADER_BOARD_NAME in build.prop).
-		codename: The device codename (from ro.product.device or
-		          ro.build.product in build.prop).
-
-	Returns:
-		True if there's a mismatch between board_name and codename.
-	"""
 	if not board_name or not codename:
 		return False
 	return board_name.lower() != codename.lower()
@@ -737,8 +671,15 @@ class DeviceTree:
 				f"See guide3 for details."
 			)
 
-		# Detect TWRP theme based on screen density
-		self.tw_theme = _detect_tw_theme(self.device_info.screen_density)
+		# Detect TWRP theme based on screen density and device type
+		# From guide1: portrait_hdpi/mdpi, landscape_hdpi/mdpi, watch_mdpi
+		is_landscape = self.device_info.is_tablet if hasattr(self.device_info, 'is_tablet') else False
+		is_watch = "watch" in (self.device_info.codename or "").lower()
+		self.tw_theme = _detect_tw_theme(
+			self.device_info.screen_density,
+			is_landscape=is_landscape,
+			is_watch=is_watch,
+		)
 
 		# Generate fstab
 		fstab = None
