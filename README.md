@@ -1,6 +1,5 @@
 # twrpdtgen
 
-[![PyPi version](https://img.shields.io/pypi/v/twrpdtgen)](https://pypi.org/project/twrpdtgen/)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/ae7d7a75522b4d079c497ff6d9e052d1)](https://www.codacy.com/gh/twrpdtgen/twrpdtgen/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=twrpdtgen/twrpdtgen&amp;utm_campaign=Badge_Grade)
 
 Create a [TWRP](https://twrp.me/)-compatible device tree only from an Android recovery image (or a boot image if the device uses non-dynamic partitions A/B) of your device's stock ROM
@@ -16,8 +15,17 @@ Requires Python 3.8 or greater
 
 ## Installation
 
+This is a fork with enhanced Windows support, TWRP flag generation, and additional device detection.
+It is **not published to PyPI** — install directly from GitHub:
+
 ```sh
-pip3 install twrpdtgen
+pip3 install git+https://github.com/twrpdtgen/twrpdtgen.git
+```
+
+To upgrade to the latest version:
+
+```sh
+pip3 install --upgrade git+https://github.com/twrpdtgen/twrpdtgen.git
 ```
 
 ### Linux/macOS
@@ -40,7 +48,7 @@ No additional system packages required. The tool uses a pure Python image unpack
 
 If your recovery image uses LZ4 compression, install the optional LZ4 support:
 ```sh
-pip3 install twrpdtgen[windows]
+pip3 install "git+https://github.com/twrpdtgen/twrpdtgen.git[windows]"
 ```
 
 ## Instructions
