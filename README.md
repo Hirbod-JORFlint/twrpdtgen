@@ -1,9 +1,9 @@
 # twrpdtgen
 
-[![Codacy Badge](https://app.codacy.com/project/badge/Grade/ae7d7a75522b4d079c497ff6d9e052d1)](https://www.codacy.com/gh/twrpdtgen/twrpdtgen/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=twrpdtgen/twrpdtgen&amp;utm_campaign=Badge_Grade)
+A fork of [twrpdtgen](https://github.com/twrpdtgen/twrpdtgen) with enhanced Windows support, TWRP flag generation, and additional device detection.
 
-Create a [TWRP](https://twrp.me/)-compatible device tree only from an Android recovery image (or a boot image if the device uses non-dynamic partitions A/B) of your device's stock ROM
-It has been confirmed that this script supports images built starting from Android 4.4 up to Android 12
+Create a [TWRP](https://twrp.me/)-compatible device tree only from an Android recovery image (or a boot image if the device uses non-dynamic partitions A/B) of your device's stock ROM.
+It has been confirmed that this script supports images built starting from Android 4.4 up to Android 12.
 
 Requires Python 3.8 or greater
 
@@ -15,17 +15,16 @@ Requires Python 3.8 or greater
 
 ## Installation
 
-This is a fork with enhanced Windows support, TWRP flag generation, and additional device detection.
-It is **not published to PyPI** — install directly from GitHub:
+This fork is **not published to PyPI** — install directly from GitHub:
 
 ```sh
-pip3 install git+https://github.com/twrpdtgen/twrpdtgen.git
+pip3 install git+https://github.com/Hirbod-JORFlint/twrpdtgen.git
 ```
 
 To upgrade to the latest version:
 
 ```sh
-pip3 install --upgrade git+https://github.com/twrpdtgen/twrpdtgen.git
+pip3 install --upgrade git+https://github.com/Hirbod-JORFlint/twrpdtgen.git
 ```
 
 ### Linux/macOS
@@ -48,7 +47,7 @@ No additional system packages required. The tool uses a pure Python image unpack
 
 If your recovery image uses LZ4 compression, install the optional LZ4 support:
 ```sh
-pip3 install "git+https://github.com/twrpdtgen/twrpdtgen.git[windows]"
+pip3 install "git+https://github.com/Hirbod-JORFlint/twrpdtgen.git[windows]"
 ```
 
 ## Instructions
